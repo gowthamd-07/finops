@@ -1,0 +1,45 @@
+# Production-style stack: the built image only, no source mounts, no bundled DB.
+#
+# All secrets and the full config.yaml are pulled from Azure Key Vault at
+# startup. The host/VM must have an Azure identity that can read the vault
+# (Managed Identity, or `az login` / a service principal via env for testing).
+#
+# Required environment (e.g. in a root-owned prod.env, NOT committed):
+#   AZURE_KEY_VAULT_URL=https://finops-kv.vault.azure.net/
+#   # If not using Managed Identity, also provide for DefaultAzureCredential:
+#   #   AZURE_TENANT_ID / AZURE_CLIENT_ID / AZURE_CLIENT_SECRET
+#
+# The vault must contain (dash-named) secrets that map to env vars, e.g.
+#   database-url, basic-auth-user, basic-auth-password, session-secret,
+#   aws-access-key-id, aws-secret-access-key, smtp-password, azure-billing-account
+# and the full config as the `app-config` secret.
+#
+# Start:  docker compose -f docker-compose.prod.yml up -d
+
+services:
+  web:
+    image: ${IMAGE:-cloud-cost-reporter:1.4.0}
+    build: .
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      APP_ENV: production
+      KEY_VAULT_REQUIRED: "true"
+      WEB_CONCURRENCY: "4"
+      AZURE_KEY_VAULT_URL: "${AZURE_KEY_VAULT_URL:?set AZURE_KEY_VAULT_URL}"
+      # Forwarded to DefaultAzureCredential only if Managed Identity is absent.
+      AZURE_TENANT_ID: "${AZURE_TENANT_ID:-}"
+      AZURE_CLIENT_ID: "${AZURE_CLIENT_ID:-}"
+      AZURE_CLIENT_SECRET: "${AZURE_CLIENT_SECRET:-}"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8080/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512M

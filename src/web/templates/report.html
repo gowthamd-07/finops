@@ -1,0 +1,1330 @@
+{% extends "base.html" %}
+{% block title %}{{ report.month }} {{ report.year }} — FinOps{% endblock %}
+{% block head %}
+<style>
+  .table-scroll { overflow-x:auto; margin-bottom:8px; }
+  .chart-row { display:grid; grid-template-columns:1fr 1fr; gap:18px; margin-bottom:24px; }
+  @media (max-width:900px){ .chart-row{ grid-template-columns:1fr; } }
+  .azure-breakdown { display:flex; flex-direction:column; gap:10px; }
+  .breakdown-card {
+    background:var(--card); border:1px solid var(--line); border-radius:12px; overflow:hidden;
+  }
+  .breakdown-card summary {
+    display:flex; justify-content:space-between; align-items:center; gap:16px;
+    padding:14px 16px; cursor:pointer; list-style:none; font-size:14px;
+  }
+  .breakdown-card summary::-webkit-details-marker { display:none; }
+  .breakdown-card summary .svc { font-weight:600; flex:1; min-width:0; }
+  .breakdown-card summary .nums { display:flex; gap:20px; font-variant-numeric:tabular-nums; }
+  .breakdown-card summary .nums span { min-width:88px; text-align:right; }
+  .breakdown-card summary .nums .lbl { color:var(--muted); font-size:11px; font-weight:500; display:block; }
+  .breakdown-card summary .nums .prod { color: var(--accent); }
+  .breakdown-card summary .nums .nonprod { color: var(--muted); }
+  .breakdown-card summary .nums .total { color:var(--text); font-weight:700; }
+  .breakdown-body { display:grid; grid-template-columns:1fr 1fr; gap:16px; padding:0 16px 16px; border-top:1px solid var(--line); }
+  @media (max-width:900px){ .breakdown-body{ grid-template-columns:1fr; } }
+  .env-col h4 { margin:14px 0 10px; font-size:12px; text-transform:uppercase; letter-spacing:.04em; color:var(--muted); }
+  .filter-tag { font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.04em;
+    color:var(--accent); background:var(--accent-dim); padding:2px 8px; border-radius:999px; vertical-align:middle; }
+  .product-group { margin-bottom:12px; background: var(--surface); border:1px solid var(--line); border-radius:8px; overflow:hidden; }
+  .product-head {
+    display:flex; justify-content:space-between; padding:8px 12px;
+    background:var(--accent-dim); font-weight:600; font-size:13px;
+  }
+  .rg-list { list-style:none; margin:0; padding:0; }
+  .rg-list li {
+    display:flex; justify-content:space-between; gap:12px; padding:7px 12px;
+    border-top:1px solid var(--line); font-size:12px; color:var(--muted);
+  }
+  .rg-list li span:last-child { color:var(--text); font-variant-numeric:tabular-nums; white-space:nowrap; }
+  .rg-list li span:first-child { word-break:break-all; }
+  .breakdown-legend { font-size:12px; color:var(--muted); margin:0 0 12px; }
+  .table-caption {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text);
+    margin: 0 0 10px;
+    text-transform: none;
+    letter-spacing: 0;
+  }
+  .exec-grid {
+    display: grid;
+    grid-template-columns: minmax(220px, 280px) 1fr;
+    gap: 20px;
+    margin-bottom: 24px;
+    align-items: start;
+  }
+  @media (max-width: 900px) { .exec-grid { grid-template-columns: 1fr; } }
+  .exec-cards { display: flex; flex-direction: column; gap: 10px; }
+  .exec-card {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 14px 16px;
+  }
+  .exec-card .label { font-size: 12px; color: var(--muted); margin-bottom: 6px; }
+  .exec-card .value { font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .exec-card.change-up { border-top: 3px solid var(--danger); background: rgba(233, 20, 41, 0.08); }
+  .exec-card.change-down { border-top: 3px solid var(--success); background: var(--accent-dim); }
+  .exec-card .value.up { color: var(--danger); }
+  .exec-card .value.down { color: var(--success); }
+  .exec-tables { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+
+  /* Tabs */
+  .tabs {
+    display:flex; gap:2px; border-bottom:1px solid var(--line);
+    margin:0 0 24px; overflow-x:auto; scrollbar-width:none;
+  }
+  .tabs::-webkit-scrollbar { display:none; }
+  .tab-btn {
+    appearance:none; background:transparent; border:none; cursor:pointer;
+    padding:12px 20px 14px; font-size:14px; font-weight:600; color:var(--muted);
+    border-bottom:2px solid transparent; white-space:nowrap; border-radius:8px 8px 0 0;
+    display:flex; flex-direction:column; gap:3px; align-items:flex-start;
+    transition:color .15s, border-color .15s, background .15s;
+  }
+  .tab-btn:hover { color:var(--text); background:var(--accent-dim); }
+  .tab-btn.active { color:var(--text); border-bottom-color:var(--accent); }
+  .tab-btn .tab-amt { font-size:12px; font-weight:600; color:var(--muted); font-variant-numeric:tabular-nums; }
+  .tab-btn.active .tab-amt { color:var(--accent); }
+  .tab-panel { display:none; }
+  .tab-panel.active { display:block; animation: ccrFade .18s ease; }
+  @keyframes ccrFade { from { opacity:0; transform:translateY(4px);} to { opacity:1; transform:none; } }
+
+  /* KPI cards */
+  .kpi-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:14px; margin-bottom:24px; }
+  .kpi {
+    position:relative; overflow:hidden;
+    background:var(--card); border:1px solid var(--line); border-radius:14px;
+    padding:18px 20px 18px 22px; display:flex; flex-direction:column; gap:8px;
+    box-shadow:0 1px 2px var(--shadow);
+    transition:transform .18s ease, box-shadow .18s ease, border-color .18s ease;
+  }
+  .kpi:hover { transform:translateY(-2px); box-shadow:0 10px 28px var(--shadow); border-color:var(--line-strong); }
+  .kpi::before { content:""; position:absolute; left:0; top:0; bottom:0; width:3px; background:var(--line-strong); }
+  .kpi.kpi-primary {
+    border-color:transparent;
+    background:linear-gradient(135deg, var(--accent-dim) 0%, transparent 65%), var(--card);
+  }
+  .kpi.kpi-primary::before { background:var(--grad-accent); }
+  .kpi .kpi-label { font-size:11px; text-transform:uppercase; letter-spacing:.05em; color:var(--muted); font-weight:600; }
+  .kpi .kpi-value { font-size:27px; font-weight:800; font-variant-numeric:tabular-nums; line-height:1.1; letter-spacing:-.01em; }
+  .kpi .kpi-sub { font-size:12px; color:var(--muted); }
+
+  /* Per-cloud summary cards */
+  .cloud-cards { display:grid; grid-template-columns:repeat(auto-fit,minmax(230px,1fr)); gap:14px; margin-bottom:8px; }
+  .cloud-card {
+    text-align:left; width:100%; font:inherit; color:var(--text); position:relative; overflow:hidden;
+    background:var(--card); border:1px solid var(--line); border-left:4px solid var(--line);
+    border-radius:14px; padding:16px 18px; display:flex; flex-direction:column; gap:12px;
+    cursor:pointer; box-shadow:0 1px 2px var(--shadow);
+    transition:border-color .15s, transform .12s, box-shadow .18s, background .15s;
+  }
+  .cloud-card:hover { transform:translateY(-3px); box-shadow:0 12px 30px var(--shadow); background:var(--card-hover); }
+  .cloud-card:hover .cc-arrow { color:var(--accent); transform:translateX(3px); }
+  .cloud-card .cc-arrow { transition:color .15s ease, transform .15s ease; }
+  .cloud-card.cc-aws { border-left-color:#f59b23; }
+  .cloud-card.cc-azure { border-left-color:var(--accent); }
+  .cloud-card.cc-gcp { border-left-color:#4285f4; }
+  .cloud-card.cc-cursor { border-left-color:#94a3b8; }
+  .cloud-card.cc-claude { border-left-color:#d97757; }
+  .cloud-card.cc-google { border-left-color:#8a5cf6; }
+  .cloud-card .cc-top { display:flex; justify-content:space-between; align-items:center; }
+  .cloud-card .cc-total { font-size:22px; font-weight:700; font-variant-numeric:tabular-nums; }
+  .cloud-card .cc-meta { display:grid; grid-auto-flow:column; grid-auto-columns:minmax(0,1fr); gap:10px; }
+  .cloud-card .cc-meta div { min-width:0; font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:.04em; }
+  .cloud-card .cc-meta b { display:block; margin-top:3px; color:var(--text); font-size:13px; font-weight:600;
+    text-transform:none; letter-spacing:0; font-variant-numeric:tabular-nums;
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .cc-arrow { color:var(--muted); font-size:13px; }
+
+  .empty-note {
+    background:var(--card); border:1px dashed var(--line); border-radius:12px;
+    padding:28px; text-align:center; color:var(--muted); font-size:14px;
+  }
+  .panel-head { display:flex; align-items:baseline; justify-content:space-between; gap:16px; margin:0 0 6px; }
+  .panel-head h2 { margin:0; font-size:18px; font-weight:700; }
+  .panel-head .ph-total { font-size:15px; font-weight:700; color:var(--accent); font-variant-numeric:tabular-nums; }
+  .panel-sub { color:var(--muted); font-size:13px; margin:0 0 20px; }
+
+  /* MoM delta chips */
+  .delta {
+    display:inline-flex; align-items:center; gap:4px;
+    font-size:12px; font-weight:700; font-variant-numeric:tabular-nums;
+    padding:2px 8px; border-radius:999px; white-space:nowrap;
+  }
+  .delta small { font-weight:500; opacity:.8; }
+  .delta.up { color:var(--danger); background:var(--danger-dim); }
+  .delta.down { color:var(--success); background:var(--accent-dim); }
+  .delta.flat { color:var(--muted); background:var(--card-hover); }
+  .kpi .delta, .cloud-card .delta { align-self:flex-start; }
+
+  /* Sparklines */
+  .spark { display:block; width:100%; height:34px; }
+  .spark svg { width:100%; height:34px; display:block; overflow:visible; }
+  .cc-spark { margin-top:2px; }
+
+  /* Insight / anomaly banner */
+  .insight-banner {
+    display:flex; align-items:flex-start; gap:12px;
+    background:linear-gradient(135deg, var(--accent-dim), transparent 70%), var(--card);
+    border:1px solid var(--line); border-left:4px solid var(--accent);
+    border-radius:12px; padding:14px 16px; margin-bottom:22px; font-size:14px; line-height:1.5;
+  }
+  .insight-banner.warn { border-left-color:var(--warn); background:linear-gradient(135deg, var(--warn-dim), transparent 70%), var(--card); }
+  .insight-banner .ib-icon { font-size:18px; line-height:1.3; flex-shrink:0; }
+  .insight-banner b { font-weight:700; }
+
+  /* Chart skeleton / empty states */
+  .chart-card { position:relative; min-height:280px; }
+  .chart-skeleton { position:absolute; inset:16px; border-radius:10px; overflow:hidden; background:var(--card-hover); }
+  .chart-skeleton::after {
+    content:""; position:absolute; inset:0;
+    background:linear-gradient(90deg, transparent, color-mix(in srgb, var(--text) 8%, transparent), transparent);
+    transform:translateX(-100%); animation:ccrShimmer 1.3s infinite;
+  }
+  @keyframes ccrShimmer { 100% { transform:translateX(100%); } }
+  .chart-card.loaded .chart-skeleton { display:none; }
+  .chart-card canvas { opacity:0; transition:opacity .3s ease; }
+  .chart-card.loaded canvas { opacity:1; }
+  .chart-empty {
+    position:absolute; inset:16px; display:none; align-items:center; justify-content:center;
+    color:var(--muted); font-size:13px; text-align:center; border:1px dashed var(--line); border-radius:10px;
+  }
+  .chart-card.empty .chart-skeleton { display:none; }
+  .chart-card.empty .chart-empty { display:flex; }
+  @media (prefers-reduced-motion: reduce) { .chart-skeleton::after { animation:none; } }
+</style>
+{% endblock %}
+{% block body %}
+{% set cloud_totals = {} %}
+{% for s in report.summaries %}{% set _ = cloud_totals.update({s.cloud|lower: s}) %}{% endfor %}
+{%- macro compact(n) -%}
+{%- set a = n|abs -%}{%- set sign = '-' if n < 0 else '' -%}
+{%- if a >= 1000000 -%}{{ sign }}${{ "%.1f"|format(a/1000000) }}M
+{%- elif a >= 1000 -%}{{ sign }}${{ "%.1f"|format(a/1000) }}K
+{%- else -%}{{ sign }}${{ "{:,.2f}".format(a) }}{%- endif -%}
+{%- endmacro -%}
+{%- macro deltachip(d) -%}
+{%- if d and d.pct is not none -%}
+{%- set cls = 'up' if d.change > 0 else ('down' if d.change < 0 else 'flat') -%}
+{%- set arrow = '▲' if d.change > 0 else ('▼' if d.change < 0 else '▬') -%}
+<span class="delta {{ cls }}">{{ arrow }} {{ "{:+.1f}".format(d.pct) }}% <small>vs last mo</small></span>
+{%- endif -%}
+{%- endmacro -%}
+<div class="layout">
+  {% include "_topnav.html" %}
+
+  <div class="main">
+    <div class="topbar topbar-split">
+      <div class="topbar-title">
+        <h1>{{ report.month }} {{ report.year }}</h1>
+        <div class="sub">{{ report.title }} · {{ report.currency }}</div>
+      </div>
+      <div class="report-actions">
+        <div class="page-actions">
+          {% if role == 'admin' %}
+          <form method="post" action="/generate" class="regen-form">
+            <input type="hidden" name="force" value="true" />
+            <input type="hidden" name="month" value="{{ month_key[:7] if month_key else '' }}" />
+            <button type="submit" class="btn btn-regenerate" title="Re-fetch costs from AWS, Azure and GCP">
+              Regenerate
+            </button>
+          </form>
+          {% endif %}
+          <a class="btn" href="/reports/{{ month_key }}/pdf" target="_blank">Download PDF</a>
+          <a class="btn" href="/reports/{{ month_key }}/csv">Download CSV</a>
+        </div>
+        {% if role == 'admin' %}
+        <span class="action-note">Regenerate re-runs cloud APIs for <strong>{{ month_key }}</strong> and overwrites the saved report.</span>
+        {% endif %}
+      </div>
+    </div>
+
+    <div class="content">
+      {% if from_cache %}
+      <div class="alert" style="margin-bottom:16px">This month was already generated — loaded from the database (no cloud API calls).</div>
+      {% endif %}
+
+      <!-- Tab navigation -->
+      <div class="tabs" role="tablist">
+        <button type="button" class="tab-btn" data-tab="overview" role="tab">
+          Overall Cost
+          <span class="tab-amt">${{ "{:,.2f}".format(report.amount_due) }}</span>
+        </button>
+        <button type="button" class="tab-btn" data-tab="azure" role="tab">
+          Azure
+          <span class="tab-amt">${{ "{:,.2f}".format(cloud_totals.azure.total if cloud_totals.azure else 0) }}</span>
+        </button>
+        <button type="button" class="tab-btn" data-tab="aws" role="tab">
+          AWS
+          <span class="tab-amt">${{ "{:,.2f}".format(cloud_totals.aws.total if cloud_totals.aws else 0) }}</span>
+        </button>
+        <button type="button" class="tab-btn" data-tab="gcp" role="tab">
+          GCP
+          <span class="tab-amt">${{ "{:,.2f}".format(cloud_totals.gcp.total if cloud_totals.gcp else 0) }}</span>
+        </button>
+        {% if ai and ai.rows %}
+        <button type="button" class="tab-btn" data-tab="ai" role="tab">
+          AI / LLM
+          <span class="tab-amt">${{ "{:,.2f}".format(ai.total) }}</span>
+        </button>
+        {% endif %}
+      </div>
+
+      <!-- ===================== OVERVIEW ===================== -->
+      <section class="tab-panel" data-tab="overview">
+        <div class="kpi-grid">
+          <div class="kpi kpi-primary">
+            <div class="kpi-label">Amount due this month</div>
+            <div class="kpi-value" id="amountDueValue" data-full="{{ "{:,.2f}".format(report.amount_due) }}" title="${{ "{:,.2f}".format(report.amount_due) }}">{{ compact(report.amount_due) }}</div>
+            {% if mom.amount_due %}{{ deltachip(mom.amount_due) }}{% endif %}
+            {% if mom.spark_overall|length > 1 %}<span class="spark" data-spark="{{ mom.spark_overall|tojson }}"></span>{% endif %}
+            <div class="kpi-sub">After credits{% if report.total_tax > 0 %} &amp; tax{% endif %}</div>
+          </div>
+          <div class="kpi">
+            <div class="kpi-label">Gross charges</div>
+            <div class="kpi-value" title="${{ "{:,.2f}".format(report.gross_subtotal) }}">{{ compact(report.gross_subtotal) }}</div>
+            {% if mom.gross %}{{ deltachip(mom.gross) }}{% endif %}
+            <div class="kpi-sub">All clouds, pre-credit</div>
+          </div>
+          {% if report.show_credits %}
+          <div class="kpi">
+            <div class="kpi-label">Credits applied</div>
+            <div class="kpi-value" title="${{ "{:,.2f}".format(report.total_credits) }}">{% if report.total_credits %}−{% endif %}{{ compact(report.total_credits) }}</div>
+            <div class="kpi-sub">Discounts &amp; prepaid</div>
+          </div>
+          {% endif %}
+          {% if report.total_tax > 0 %}
+          <div class="kpi">
+            <div class="kpi-label">Tax</div>
+            <div class="kpi-value" title="${{ "{:,.2f}".format(report.total_tax) }}">{{ compact(report.total_tax) }}</div>
+            <div class="kpi-sub">Where applicable</div>
+          </div>
+          {% endif %}
+        </div>
+
+        {% if mom.anomaly or key_increase_rows or savings_rows %}
+        <div class="insight-banner {{ 'warn' if mom.anomaly and mom.anomaly.direction == 'up' else '' }}">
+          <span class="ib-icon">{{ '▲' if mom.anomaly and mom.anomaly.direction == 'up' else ('▼' if mom.anomaly and mom.anomaly.direction == 'down' else '◆') }}</span>
+          <div>
+            {% if mom.anomaly %}<b>{{ mom.anomaly.cloud }} {{ 'up' if mom.anomaly.direction == 'up' else 'down' }} {{ "{:.1f}".format(mom.anomaly.pct|abs) }}%</b> vs last month ({{ '+' if mom.anomaly.change >= 0 else '−' }}${{ "{:,.0f}".format(mom.anomaly.change|abs) }}). {% endif %}
+            {% if key_increase_rows %}Top mover: <b>{{ key_increase_rows[0].service or key_increase_rows[0].resource or '—' }}</b> (+${{ "{:,.0f}".format(key_increase_rows[0].amount | default(0, true)) }}){% if key_increase_rows[0].cloud %} on {{ key_increase_rows[0].cloud }}{% endif %}. {% endif %}
+            {% if savings_rows %}Biggest saving: <b>{{ savings_rows[0].service or savings_rows[0].resource or '—' }}</b> (−${{ "{:,.0f}".format(savings_rows[0].amount | default(0, true)) }}).{% endif %}
+          </div>
+        </div>
+        {% endif %}
+
+        <!-- Per-cloud cards -->
+        <h2 class="section">Spend by cloud</h2>
+        <div class="cloud-cards">
+          {% for s in report.summaries %}
+          {% set cd = mom.clouds.get(s.cloud) %}
+          {% set cs = mom.spark_clouds.get(s.cloud) %}
+          <button type="button" class="cloud-card cc-{{ s.cloud|lower }}" data-goto="{{ s.cloud|lower }}">
+            <div class="cc-top">
+              <span class="cloud-badge badge-{{ s.cloud|lower }}">{{ s.cloud }}</span>
+              <span class="cc-arrow">View →</span>
+            </div>
+            <div class="cc-total" title="${{ "{:,.2f}".format(s.total) }}">{{ compact(s.total) }}</div>
+            {% if cd %}{{ deltachip(cd) }}{% endif %}
+            {% if cs and cs|length > 1 %}<span class="spark cc-spark" data-spark="{{ cs|tojson }}" data-cloud="{{ s.cloud|lower }}"></span>{% endif %}
+            <div class="cc-meta">
+              <div>Charges<b title="${{ "{:,.2f}".format(s.subtotal) }}">{{ compact(s.subtotal) }}</b></div>
+              {% if report.show_credits %}<div>Credits<b title="−${{ "{:,.2f}".format(s.credits) }}">{% if s.credits %}−{% endif %}{{ compact(s.credits) }}</b></div>{% endif %}
+              {% if report.total_tax > 0 %}<div>Tax<b title="${{ "{:,.2f}".format(s.tax) }}">{{ compact(s.tax) }}</b></div>{% endif %}
+            </div>
+          </button>
+          {% endfor %}
+        </div>
+
+        <!-- Environment breakdown across clouds -->
+        {% if clouds %}
+        {% set env_total = clouds.values()|sum(attribute='total') %}
+        <h2 class="section">Environment breakdown</h2>
+        <p class="panel-sub">Production vs non-production vs shared spend across every cloud.</p>
+        <div class="table-scroll">
+        <table class="data">
+          <thead><tr>
+            <th>Cloud</th>
+            <th class="num">Production (USD)</th>
+            <th class="num">Non-Production (USD)</th>
+            <th class="num">Shared (USD)</th>
+            <th class="num">Total (USD)</th>
+            <th class="num">% of Total</th>
+          </tr></thead>
+          <tbody>
+            {% for cloud, d in clouds.items() %}
+            <tr>
+              <td><span class="cloud-badge badge-{{ cloud|lower }}">{{ cloud }}</span></td>
+              <td class="num">${{ "{:,.2f}".format(d.production) }}</td>
+              <td class="num">${{ "{:,.2f}".format(d.non_production) }}</td>
+              <td class="num">${{ "{:,.2f}".format(d.shared) }}</td>
+              <td class="num"><strong>${{ "{:,.2f}".format(d.total) }}</strong></td>
+              <td class="num">{{ "{:.1f}".format(d.total / env_total * 100 if env_total else 0) }}%</td>
+            </tr>
+            {% endfor %}
+            <tr class="total">
+              <td>All clouds</td>
+              <td class="num">${{ "{:,.2f}".format(clouds.values()|sum(attribute='production')) }}</td>
+              <td class="num">${{ "{:,.2f}".format(clouds.values()|sum(attribute='non_production')) }}</td>
+              <td class="num">${{ "{:,.2f}".format(clouds.values()|sum(attribute='shared')) }}</td>
+              <td class="num">${{ "{:,.2f}".format(env_total) }}</td>
+              <td class="num">100.0%</td>
+            </tr>
+          </tbody>
+        </table>
+        </div>
+        {% endif %}
+
+        <!-- Filters -->
+        <h2 class="section">Explore &amp; filter</h2>
+        <div class="filters-panel">
+          <div class="filter-grid">
+            <div class="filter-item">
+              <label class="field" for="fCloud">Cloud</label>
+              <select id="fCloud" class="select"><option value="">All clouds</option>
+                {% for c in filter_options.clouds %}<option>{{ c }}</option>{% endfor %}
+              </select>
+            </div>
+            <div class="filter-item azure-only">
+              <label class="field" for="fSub">Subscription</label>
+              <select id="fSub" class="select"><option value="">All subscriptions</option>
+                {% for s in filter_options.subscriptions %}<option>{{ s }}</option>{% endfor %}
+              </select>
+            </div>
+            <div class="filter-item azure-only">
+              <label class="field" for="fProduct">Workload</label>
+              <select id="fProduct" class="select"><option value="">All workloads</option>
+                {% for p in filter_options.product_groups %}<option>{{ p }}</option>{% endfor %}
+              </select>
+            </div>
+            <div class="filter-item azure-only">
+              <label class="field" for="fEnv">Environment</label>
+              <select id="fEnv" class="select"><option value="">All environments</option>
+                {% for e in filter_options.env_tiers %}<option value="{{ e.code }}">{{ e.label }}</option>{% endfor %}
+              </select>
+            </div>
+            <div class="filter-item">
+              <label class="field" for="fSvc">Service</label>
+              <select id="fSvc" class="select"><option value="">All services</option>
+                {% for s in filter_options.services %}<option data-clouds="{{ filter_options.service_clouds[s]|join(' ') }}">{{ s }}</option>{% endfor %}
+              </select>
+            </div>
+            <div class="filter-item">
+              <label class="field" for="fDim">Chart by</label>
+              <select id="fDim" class="select">
+                <option value="service">Service</option>
+                <option value="subscription" class="dim-azure-only">Subscription</option>
+                <option value="resource_group" class="dim-azure-only">Resource group</option>
+              </select>
+            </div>
+            <div class="filter-actions">
+              <button type="button" class="btn btn-outline" onclick="clearFilters()">Clear filters</button>
+            </div>
+          </div>
+          <div class="filter-summary">
+            <div class="filter-total-lg" id="filterTotal">—</div>
+            <div class="filter-hint" id="filterHint">Environment: pd = Production · dv = Development · st = Staging · ut = UAT (from Azure RG names).</div>
+          </div>
+        </div>
+
+        <div class="chart-row">
+          <div class="card chart-card" id="dimCard">
+            <div class="chart-skeleton"></div>
+            <div class="chart-empty">No spend matches the selected filters.</div>
+            <canvas id="dimChart" height="240"></canvas>
+          </div>
+          <div class="card chart-card" id="trendCard">
+            <div class="chart-skeleton"></div>
+            <div class="chart-empty">Not enough history for a trend yet.</div>
+            <canvas id="trendChart" height="240"></canvas>
+          </div>
+        </div>
+
+        <!-- Summary -->
+        <h2 class="section">Summary — All Clouds <span id="summaryFilterTag" class="filter-tag" hidden>filtered</span></h2>
+        <table class="data" id="summaryTable"
+               data-credits="{{ '1' if report.show_credits else '' }}"
+               data-tax="{{ '1' if report.total_tax > 0 else '' }}">
+          <thead><tr>
+            <th>Cloud Provider</th>
+            <th class="num">Charges (USD)</th>
+            {% if report.show_credits %}<th class="num">Credits (USD)</th>{% endif %}
+            {% if report.total_tax > 0 %}<th class="num">Tax (USD)</th>{% endif %}
+            <th class="num">Amount Due (USD)</th>
+          </tr></thead>
+          <tbody id="summaryBody">
+            {% for s in report.summaries %}
+            <tr>
+              <td><span class="cloud-badge badge-{{ s.cloud|lower }}">{{ s.cloud }}</span></td>
+              <td class="num">${{ "{:,.2f}".format(s.subtotal) }}</td>
+              {% if report.show_credits %}<td class="num">{% if s.credits %}−{% endif %}${{ "{:,.2f}".format(s.credits) }}</td>{% endif %}
+              {% if report.total_tax > 0 %}<td class="num">${{ "{:,.2f}".format(s.tax) }}</td>{% endif %}
+              <td class="num"><strong>${{ "{:,.2f}".format(s.total) }}</strong></td>
+            </tr>
+            {% endfor %}
+            <tr class="total"><td>Total (all clouds)</td>
+              <td class="num">${{ "{:,.2f}".format(report.gross_subtotal) }}</td>
+              {% if report.show_credits %}<td class="num">{% if report.total_credits %}−{% endif %}${{ "{:,.2f}".format(report.total_credits) }}</td>{% endif %}
+              {% if report.total_tax > 0 %}<td class="num">${{ "{:,.2f}".format(report.total_tax) }}</td>{% endif %}
+              <td class="num">${{ "{:,.2f}".format(report.amount_due) }}</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <!-- Executive Summary -->
+        {% if key_increase_rows or savings_rows %}
+        <h2 class="section">Executive Summary</h2>
+        <div class="exec-tables">
+          {% if key_increase_rows %}
+          <div>
+            <h3 class="table-caption">Key Increases (month over month)</h3>
+            <table class="data">
+              <thead>
+                <tr>
+                  <th>Cloud</th>
+                  <th>Resource</th>
+                  <th>Service</th>
+                  <th class="num">Increase (USD)</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for row in key_increase_rows %}
+                <tr>
+                  <td>{{ row.cloud or '—' }}</td>
+                  <td>{{ row.resource or '—' }}</td>
+                  <td>{{ row.service or '—' }}</td>
+                  <td class="num up">${{ "{:,.2f}".format(row.amount | default(0, true)) }}</td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+          {% endif %}
+
+          {% if savings_rows %}
+          <div>
+            <h3 class="table-caption">Key Decreases (month over month)</h3>
+            <table class="data">
+              <thead>
+                <tr>
+                  <th>Cloud</th>
+                  <th>Resource</th>
+                  <th>Service</th>
+                  <th class="num">Decrease (USD)</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for row in savings_rows %}
+                <tr>
+                  <td>{{ row.cloud or '—' }}</td>
+                  <td>{{ row.resource or '—' }}</td>
+                  <td>{{ row.service or '—' }}</td>
+                  <td class="num down">${{ "{:,.2f}".format(row.amount | default(0, true)) }}</td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+          {% endif %}
+        </div>
+        {% endif %}
+
+        {% if report.period_summaries %}
+        <h2 class="section">Period Comparison</h2>
+        <p class="filter-hint" style="margin-bottom:10px">Based on amount due each month (after credits and tax).</p>
+        <table class="data">
+          <thead><tr><th>Period</th><th>Date Range</th><th class="num">Highest Spend (USD)</th><th class="num">Lowest Spend (USD)</th><th class="num">Savings (USD)</th><th class="num">Reduction (%)</th></tr></thead>
+          <tbody>{% for p in report.period_summaries %}
+          <tr><td>{{ p.label }}</td><td class="muted">{{ p.from }} to {{ p.to }}</td>
+            <td class="num">${{ "{:,.0f}".format(p.highest) }}</td><td class="num">${{ "{:,.0f}".format(p.lowest) }}</td>
+            <td class="num down">${{ "{:,.0f}".format(p.savings) }}</td><td class="num">{{ "{:.1f}".format(p.reduction_pct) }}%</td></tr>
+          {% endfor %}</tbody>
+        </table>
+        {% endif %}
+
+        {% if report.credits_projection %}
+        {% set cp = report.credits_projection %}
+        <h2 class="section">Credits Usage &amp; Forecast</h2>
+        <p class="filter-hint" style="margin-bottom:10px">Prepaid EA / agreement credit balance from config. Each month's applied credits (e.g. the Azure Credit on the invoice) draw down the balance.</p>
+        <div class="exec-cards" style="flex-direction:row;flex-wrap:wrap;gap:10px;margin-bottom:14px">
+          <div class="exec-card" style="flex:1;min-width:180px">
+            <div class="label">Credits used this month</div>
+            <div class="value">${{ "{:,.2f}".format(cp.this_month_usage) }}</div>
+          </div>
+          <div class="exec-card" style="flex:1;min-width:180px">
+            <div class="label">Avg monthly usage ({{ cp.window_months }} mo)</div>
+            <div class="value">${{ "{:,.2f}".format(cp.avg_monthly_burn) }}</div>
+          </div>
+          <div class="exec-card" style="flex:1;min-width:180px">
+            <div class="label">Balance remaining</div>
+            <div class="value">${{ "{:,.2f}".format(cp.current_balance) }}</div>
+          </div>
+          {% if cp.months_remaining is not none %}
+          <div class="exec-card" style="flex:1;min-width:180px">
+            <div class="label">Runway at current usage</div>
+            <div class="value">{{ cp.months_remaining }} mo</div>
+          </div>
+          {% endif %}
+        </div>
+        <table class="data">
+          <tbody>
+            {% if cp.original_amount %}
+            <tr><td>Original credit granted</td><td class="num">${{ "{:,.2f}".format(cp.original_amount) }}</td></tr>
+            <tr><td>Used to date ({{ cp.pct_used }}% of total)</td><td class="num">${{ "{:,.2f}".format(cp.credits_used_total) }}</td></tr>
+            {% endif %}
+            <tr><td>Credits used (last {{ cp.window_months }} months)</td><td class="num">${{ "{:,.2f}".format(cp.credits_used_window) }}</td></tr>
+            {% if cp.expiry_date %}
+            <tr><td>Expiry date</td><td class="num">{{ cp.expiry_date }} ({{ cp.months_to_expiry }} months away)</td></tr>
+            <tr><td>Projected usage until expiry</td><td class="num">${{ "{:,.2f}".format(cp.projected_usage_to_expiry) }}</td></tr>
+            {% if cp.estimated_unused_at_expiry %}
+            <tr><td>Estimated unused at expiry</td><td class="num down">${{ "{:,.2f}".format(cp.estimated_unused_at_expiry) }}</td></tr>
+            {% endif %}
+            {% if cp.estimated_overrun_at_expiry %}
+            <tr><td>Estimated overrun at expiry</td><td class="num up">${{ "{:,.2f}".format(cp.estimated_overrun_at_expiry) }}</td></tr>
+            {% endif %}
+            {% endif %}
+          </tbody>
+        </table>
+        {% if cp.monthly_usage %}
+        <table class="data" style="margin-top:10px">
+          <thead><tr><th>Month</th><th class="num">Credits used (USD)</th></tr></thead>
+          <tbody>
+            {% for u in cp.monthly_usage %}
+            <tr><td>{{ u.month }}</td><td class="num">${{ "{:,.2f}".format(u.used) }}</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        {% endif %}
+        {% endif %}
+
+        {% if report.anthropic_credits %}
+        {% set ap = report.anthropic_credits %}
+        <h2 class="section">Anthropic (Claude) Credits</h2>
+        <p class="filter-hint" style="margin-bottom:10px">Prepaid Claude credit grants from config (Anthropic has no balance API). Prepaid credits are drawn down by Claude usage, so each month's Claude spend reduces the balance.</p>
+        <div class="exec-cards" style="flex-direction:row;flex-wrap:wrap;gap:10px;margin-bottom:14px">
+          <div class="exec-card" style="flex:1;min-width:180px">
+            <div class="label">Claude usage this month</div>
+            <div class="value">${{ "{:,.2f}".format(ap.this_month_usage) }}</div>
+          </div>
+          <div class="exec-card" style="flex:1;min-width:180px">
+            <div class="label">Avg monthly usage ({{ ap.window_months }} mo)</div>
+            <div class="value">${{ "{:,.2f}".format(ap.avg_monthly_burn) }}</div>
+          </div>
+          <div class="exec-card" style="flex:1;min-width:180px">
+            <div class="label">Balance remaining</div>
+            <div class="value">${{ "{:,.2f}".format(ap.current_balance) }}</div>
+          </div>
+          {% if ap.months_remaining is not none %}
+          <div class="exec-card" style="flex:1;min-width:180px">
+            <div class="label">Runway at current usage</div>
+            <div class="value">{{ ap.months_remaining }} mo</div>
+          </div>
+          {% endif %}
+        </div>
+        <table class="data">
+          <tbody>
+            {% if ap.original_amount %}
+            <tr><td>Original credits granted</td><td class="num">${{ "{:,.2f}".format(ap.original_amount) }}</td></tr>
+            <tr><td>Used to date ({{ ap.pct_used }}% of total)</td><td class="num">${{ "{:,.2f}".format(ap.credits_used_total) }}</td></tr>
+            {% endif %}
+            <tr><td>Claude usage (last {{ ap.window_months }} months)</td><td class="num">${{ "{:,.2f}".format(ap.credits_used_window) }}</td></tr>
+            {% if ap.expiry_date %}
+            <tr><td>Expiry date</td><td class="num">{{ ap.expiry_date }} ({{ ap.months_to_expiry }} months away)</td></tr>
+            <tr><td>Projected usage until expiry</td><td class="num">${{ "{:,.2f}".format(ap.projected_usage_to_expiry) }}</td></tr>
+            {% if ap.estimated_unused_at_expiry %}
+            <tr><td>Estimated unused at expiry</td><td class="num down">${{ "{:,.2f}".format(ap.estimated_unused_at_expiry) }}</td></tr>
+            {% endif %}
+            {% if ap.estimated_overrun_at_expiry %}
+            <tr><td>Estimated overrun at expiry</td><td class="num up">${{ "{:,.2f}".format(ap.estimated_overrun_at_expiry) }}</td></tr>
+            {% endif %}
+            {% endif %}
+          </tbody>
+        </table>
+        {% if ap.monthly_usage %}
+        <table class="data" style="margin-top:10px">
+          <thead><tr><th>Month</th><th class="num">Claude usage (USD)</th></tr></thead>
+          <tbody>
+            {% for u in ap.monthly_usage %}
+            <tr><td>{{ u.month }}</td><td class="num">${{ "{:,.2f}".format(u.used) }}</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        {% endif %}
+        {% endif %}
+      </section>
+
+      <!-- ===================== AZURE ===================== -->
+      <section class="tab-panel" data-tab="azure">
+        <div class="panel-head">
+          <h2>Microsoft Azure</h2>
+          {% if cloud_totals.azure %}<span class="ph-total">${{ "{:,.2f}".format(cloud_totals.azure.total) }}</span>{% endif %}
+        </div>
+        <p class="panel-sub">Amount due after credits{% if report.total_tax > 0 %} and tax{% endif %} for {{ report.month }} {{ report.year }}.</p>
+
+        {% if report.azure_curr_gross is not none or report.azure_prev_gross is not none %}
+        <h2 class="section">Azure Overall Spend</h2>
+        <div class="kpi-grid">
+          {% if report.azure_prev_gross is not none %}
+          <div class="kpi">
+            <div class="kpi-label">Previous month (gross)</div>
+            <div class="kpi-value">${{ "{:,.2f}".format(report.azure_prev_gross) }}</div>
+          </div>
+          {% endif %}
+          <div class="kpi">
+            <div class="kpi-label">Current month (gross)</div>
+            <div class="kpi-value">${{ "{:,.2f}".format(report.azure_curr_gross or 0) }}</div>
+          </div>
+          {% if report.azure_prev_gross is not none %}
+          {% set net_change = (report.azure_curr_gross or 0) - report.azure_prev_gross %}
+          <div class="kpi" style="border-top:3px solid {{ 'var(--danger)' if net_change >= 0 else 'var(--success)' }}">
+            <div class="kpi-label">Net change</div>
+            <div class="kpi-value {{ 'up' if net_change >= 0 else 'down' }}">
+              {{ '+' if net_change >= 0 else '' }}${{ "{:,.2f}".format(net_change) }}
+            </div>
+          </div>
+          {% endif %}
+        </div>
+        {% endif %}
+
+        {% if azure_sub %}
+        <h2 class="section">By Subscription</h2>
+        <div class="table-scroll">
+        <table class="data">
+          <thead><tr><th>Service Name</th>
+            {% for n in azure_sub.subscription_names %}<th class="num">{{ n }} (USD)</th>{% endfor %}
+            <th class="num">Total (USD)</th></tr></thead>
+          <tbody>
+            {% for row in azure_sub.rows %}
+            <tr><td>{{ row.service }}</td>
+              {% for n in azure_sub.subscription_names %}
+              <td class="num">${{ "{:,.2f}".format(row.by_subscription.get(n, 0)) }}</td>
+              {% endfor %}
+              <td class="num"><strong>${{ "{:,.2f}".format(row.total) }}</strong></td></tr>
+            {% endfor %}
+            <tr class="total"><td>Total Cost</td>
+              {% for n in azure_sub.subscription_names %}
+              <td class="num">${{ "{:,.2f}".format(azure_sub.totals.get(n, 0)) }}</td>
+              {% endfor %}
+              <td class="num">${{ "{:,.2f}".format(azure_sub.total) }}</td></tr>
+          </tbody>
+        </table>
+        </div>
+
+        <h2 class="section">Cost Breakdown</h2>
+        <p class="breakdown-legend">Resource groups grouped by workload (Ecommerce, Shared, VRE, AI, Bioinfo, Others). Production uses <strong>pd</strong> tiers; non-production uses <strong>st</strong> and <strong>dv</strong> tiers.</p>
+        <div class="azure-breakdown">
+          {% for row in azure_breakdown %}
+          <details class="breakdown-card" {% if loop.index <= 3 %}open{% endif %}>
+            <summary>
+              <span class="svc">{{ row.service }}</span>
+              <span class="nums">
+                <span class="prod"><span class="lbl">Production</span>${{ "{:,.2f}".format(row.production) }}</span>
+                <span class="nonprod"><span class="lbl">Non-Prod</span>${{ "{:,.2f}".format(row.non_production) }}</span>
+                <span class="total"><span class="lbl">Total</span>${{ "{:,.2f}".format(row.total) }}</span>
+              </span>
+            </summary>
+            <div class="breakdown-body">
+              <div class="env-col">
+                <h4>Production (pd)</h4>
+                {% if row.production_groups %}
+                  {% for group in row.production_groups %}
+                  <div class="product-group">
+                    <div class="product-head"><span>{{ group.product }}</span><span>${{ "{:,.2f}".format(group.production) }}</span></div>
+                    <ul class="rg-list">
+                      {% for rg, c in group.production_rgs %}
+                      <li><span>{{ rg }}</span><span>${{ "{:,.2f}".format(c) }}</span></li>
+                      {% endfor %}
+                    </ul>
+                  </div>
+                  {% endfor %}
+                {% else %}
+                <p class="muted" style="font-size:12px;margin:0">—</p>
+                {% endif %}
+              </div>
+              <div class="env-col">
+                <h4>Non-Production (st / dv)</h4>
+                {% if row.non_production_groups %}
+                  {% for group in row.non_production_groups %}
+                  <div class="product-group">
+                    <div class="product-head"><span>{{ group.product }}</span><span>${{ "{:,.2f}".format(group.non_production) }}</span></div>
+                    <ul class="rg-list">
+                      {% for rg, c in group.non_production_rgs %}
+                      <li><span>{{ rg }}</span><span>${{ "{:,.2f}".format(c) }}</span></li>
+                      {% endfor %}
+                    </ul>
+                  </div>
+                  {% endfor %}
+                {% else %}
+                <p class="muted" style="font-size:12px;margin:0">—</p>
+                {% endif %}
+              </div>
+            </div>
+          </details>
+          {% endfor %}
+        </div>
+        {% else %}
+        <div class="empty-note">No Azure cost data for this month.</div>
+        {% endif %}
+      </section>
+
+      <!-- ===================== AWS ===================== -->
+      <section class="tab-panel" data-tab="aws">
+        <div class="panel-head">
+          <h2>Amazon Web Services</h2>
+          {% if cloud_totals.aws %}<span class="ph-total">${{ "{:,.2f}".format(cloud_totals.aws.total) }}</span>{% endif %}
+        </div>
+        <p class="panel-sub">Charges by service for {{ report.month }} {{ report.year }}.</p>
+
+        {% if aws.services %}
+        <h2 class="section">By Service</h2>
+        <table class="data">
+          <thead><tr><th>Service Name</th><th class="num">Amount (USD)</th><th class="num">% of Charges</th></tr></thead>
+          <tbody>
+            {% for s in aws.services %}<tr><td>{{ s.service }}</td><td class="num">${{ "{:,.2f}".format(s.cost) }}</td><td class="num muted">{{ "{:.1f}".format(s.cost / aws.subtotal * 100 if aws.subtotal else 0) }}%</td></tr>{% endfor %}
+            <tr class="total"><td>Total Pre-Tax Charges</td><td class="num">${{ "{:,.2f}".format(aws.subtotal) }}</td><td class="num">100.0%</td></tr>
+            {% if aws.credits %}
+            <tr><td>Total Credits</td><td class="num down">-${{ "{:,.2f}".format(aws.credits) }}</td><td></td></tr>
+            {% endif %}
+            <tr><td>Total Tax</td><td class="num">${{ "{:,.2f}".format(aws.tax) }}</td><td></td></tr>
+            <tr class="total"><td>Grand Total (AWS)</td><td class="num">${{ "{:,.2f}".format(aws.total) }}</td><td></td></tr>
+          </tbody>
+        </table>
+
+        {% if aws.credits_by_service %}
+        <h2 class="section">Credits by Service</h2>
+        <table class="data">
+          <thead><tr><th>Service Name</th><th class="num">Credit (USD)</th></tr></thead>
+          <tbody>
+            {% for c in aws.credits_by_service %}<tr><td>{{ c.service }}</td><td class="num down">-${{ "{:,.2f}".format(c.credits) }}</td></tr>{% endfor %}
+            <tr class="total"><td>Total Credits</td><td class="num down">-${{ "{:,.2f}".format(aws.credits) }}</td></tr>
+          </tbody>
+        </table>
+        {% endif %}
+        {% else %}
+        <div class="empty-note">No AWS cost data for this month.</div>
+        {% endif %}
+      </section>
+
+      <!-- ===================== GCP ===================== -->
+      <section class="tab-panel" data-tab="gcp">
+        <div class="panel-head">
+          <h2>Google Cloud Platform</h2>
+          {% if cloud_totals.gcp %}<span class="ph-total">${{ "{:,.2f}".format(cloud_totals.gcp.total) }}</span>{% endif %}
+        </div>
+        <p class="panel-sub">Charges by service and project for {{ report.month }} {{ report.year }}.</p>
+
+        {% if gcp.services %}
+        <h2 class="section">By Service</h2>
+        <div class="table-scroll">
+        <table class="data">
+          <thead><tr><th>Service Name</th><th class="num">Production (USD)</th><th class="num">Non-Production (USD)</th><th class="num">Shared (USD)</th><th class="num">Total (USD)</th><th class="num">% of Total</th></tr></thead>
+          <tbody>
+            {% for s in gcp.services %}<tr><td>{{ s.service }}</td><td class="num">${{ "{:,.2f}".format(s.production) }}</td><td class="num">${{ "{:,.2f}".format(s.non_production) }}</td><td class="num">${{ "{:,.2f}".format(s.shared) }}</td><td class="num"><strong>${{ "{:,.2f}".format(s.total) }}</strong></td><td class="num muted">{{ "{:.1f}".format(s.total / gcp.subtotal * 100 if gcp.subtotal else 0) }}%</td></tr>{% endfor %}
+            <tr class="total"><td colspan="4">Total Pre-Credit Charges</td><td class="num">${{ "{:,.2f}".format(gcp.subtotal) }}</td><td class="num">100.0%</td></tr>
+            {% if gcp.credits %}
+            <tr><td colspan="4">Total Credits</td><td class="num down">-${{ "{:,.2f}".format(gcp.credits) }}</td><td></td></tr>
+            {% endif %}
+            <tr class="total"><td colspan="4">Grand Total (GCP)</td><td class="num">${{ "{:,.2f}".format(gcp.total) }}</td><td></td></tr>
+          </tbody>
+        </table>
+        </div>
+
+        {% set gcp_detail = gcp.services | selectattr('projects') | list %}
+        {% if gcp_detail %}
+        <h2 class="section">Service &times; Project detail</h2>
+        <p class="breakdown-legend">Each service expanded to the projects that drove its spend (pre-credit charges).</p>
+        <div class="azure-breakdown">
+          {% for s in gcp_detail %}
+          <details class="breakdown-card" {% if loop.index <= 3 %}open{% endif %}>
+            <summary>
+              <span class="svc">{{ s.service }}</span>
+              <span class="nums">
+                <span class="prod"><span class="lbl">Production</span>${{ "{:,.2f}".format(s.production) }}</span>
+                <span class="nonprod"><span class="lbl">Non-Prod</span>${{ "{:,.2f}".format(s.non_production) }}</span>
+                <span class="total"><span class="lbl">Total</span>${{ "{:,.2f}".format(s.total) }}</span>
+              </span>
+            </summary>
+            <div style="padding:0 16px 12px;border-top:1px solid var(--line)">
+              <ul class="rg-list">
+                {% for project, amount in s.projects %}
+                <li><span>{{ project }}</span><span>${{ "{:,.2f}".format(amount) }}</span></li>
+                {% endfor %}
+              </ul>
+            </div>
+          </details>
+          {% endfor %}
+        </div>
+        {% endif %}
+
+        {% if gcp.credits_by_service %}
+        <h2 class="section">Credits by Service</h2>
+        <table class="data">
+          <thead><tr><th>Service Name</th><th class="num">Credit (USD)</th></tr></thead>
+          <tbody>
+            {% for c in gcp.credits_by_service %}<tr><td>{{ c.service }}</td><td class="num down">-${{ "{:,.2f}".format(c.credits) }}</td></tr>{% endfor %}
+            <tr class="total"><td>Total Credits</td><td class="num down">-${{ "{:,.2f}".format(gcp.credits) }}</td></tr>
+          </tbody>
+        </table>
+        {% endif %}
+
+        {% if gcp_project and gcp_project.project_names %}
+        <h2 class="section">By Project</h2>
+        <p class="breakdown-legend">Net cost (after credits) per project, broken down by service.</p>
+        <div class="table-scroll">
+        <table class="data">
+          <thead><tr><th>Service Name</th>
+            {% for p in gcp_project.project_names %}<th class="num">{{ p }} (USD)</th>{% endfor %}
+            <th class="num">Total (USD)</th></tr></thead>
+          <tbody>
+            {% for row in gcp_project.rows %}
+            <tr><td>{{ row.service }}</td>
+              {% for p in gcp_project.project_names %}
+              <td class="num">${{ "{:,.2f}".format(row.by_project.get(p, 0)) }}</td>
+              {% endfor %}
+              <td class="num"><strong>${{ "{:,.2f}".format(row.total) }}</strong></td></tr>
+            {% endfor %}
+            <tr class="total"><td>Total Cost</td>
+              {% for p in gcp_project.project_names %}
+              <td class="num">${{ "{:,.2f}".format(gcp_project.totals.get(p, 0)) }}</td>
+              {% endfor %}
+              <td class="num">${{ "{:,.2f}".format(gcp_project.total) }}</td></tr>
+          </tbody>
+        </table>
+        </div>
+        {% endif %}
+        {% else %}
+        <div class="empty-note">No GCP cost data for this month.</div>
+        {% endif %}
+      </section>
+
+      <!-- ===================== AI / LLM ===================== -->
+      <section class="tab-panel" data-tab="ai">
+        <div class="panel-head">
+          <h2>AI / LLM Services</h2>
+          {% if ai and ai.rows %}<span class="ph-total">${{ "{:,.2f}".format(ai.total) }}</span>{% endif %}
+        </div>
+        <p class="panel-sub">Live LLM spend for {{ report.month }} {{ report.year }}. Cursor and Claude come from each provider's usage API; Google (Gemini / Vertex AI) is sourced from GCP billing, so it is also counted under the GCP tab.</p>
+
+        {% if ai and ai.rows %}
+        <h2 class="section">By Provider</h2>
+        <table class="data">
+          <thead><tr>
+            <th>Provider</th>
+            <th class="num">Charges (USD)</th>
+            {% if ai.credits %}<th class="num">Credits (USD)</th>{% endif %}
+            <th class="num">Amount Due (USD)</th>
+            <th class="num">% of Total</th>
+          </tr></thead>
+          <tbody>
+            {% for p in ai.providers %}
+            <tr>
+              <td><span class="cloud-badge badge-{{ p.provider|lower }}">{{ p.provider }}</span></td>
+              <td class="num">${{ "{:,.2f}".format(p.subtotal) }}</td>
+              {% if ai.credits %}<td class="num">{% if p.credits %}−{% endif %}${{ "{:,.2f}".format(p.credits) }}</td>{% endif %}
+              <td class="num"><strong>${{ "{:,.2f}".format(p.total) }}</strong></td>
+              <td class="num muted">{{ "{:.1f}".format(p.total / ai.total * 100 if ai.total else 0) }}%</td>
+            </tr>
+            {% endfor %}
+            <tr class="total">
+              <td>Total</td>
+              <td class="num">${{ "{:,.2f}".format(ai.subtotal) }}</td>
+              {% if ai.credits %}<td class="num down">−${{ "{:,.2f}".format(ai.credits) }}</td>{% endif %}
+              <td class="num">${{ "{:,.2f}".format(ai.total) }}</td>
+              <td class="num">100.0%</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <h2 class="section">By Project</h2>
+        <div class="table-scroll">
+        <table class="data">
+          <thead><tr>
+            <th>Project</th>
+            <th>Provider(s)</th>
+            {% if ai.has_tokens %}<th class="num">Usage</th>{% endif %}
+            {% if ai.has_env_split %}
+            <th class="num">Production (USD)</th>
+            <th class="num">Non-Production (USD)</th>
+            <th class="num">Shared (USD)</th>
+            {% endif %}
+            <th class="num">Cost (USD)</th>
+            <th class="num">% of Charges</th>
+          </tr></thead>
+          <tbody>
+            {% for r in ai.projects %}
+            <tr>
+              <td>{{ r.project }}</td>
+              <td>{% for p in r.providers %}<span class="cloud-badge badge-{{ p|lower }}">{{ p }}</span> {% endfor %}</td>
+              {% if ai.has_tokens %}<td class="num">{% if r.tokens %}{{ "{:,.0f}".format(r.tokens) }}{% if r.unit %} <span class="muted">{{ r.unit }}</span>{% endif %}{% else %}—{% endif %}</td>{% endif %}
+              {% if ai.has_env_split %}
+              <td class="num">${{ "{:,.2f}".format(r.production) }}</td>
+              <td class="num">${{ "{:,.2f}".format(r.non_production) }}</td>
+              <td class="num">${{ "{:,.2f}".format(r.shared) }}</td>
+              {% endif %}
+              <td class="num"><strong>${{ "{:,.2f}".format(r.total) }}</strong></td>
+              <td class="num muted">{{ "{:.1f}".format(r.total / ai.subtotal * 100 if ai.subtotal else 0) }}%</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        </div>
+
+        <h2 class="section">By Model</h2>
+        <div class="table-scroll">
+        <table class="data">
+          <thead><tr>
+            <th>Model</th>
+            <th>Provider</th>
+            {% if ai.has_projects %}<th>Project</th>{% endif %}
+            {% if ai.has_tokens %}<th class="num">Usage</th>{% endif %}
+            {% if ai.has_env_split %}
+            <th class="num">Production (USD)</th>
+            <th class="num">Non-Production (USD)</th>
+            <th class="num">Shared (USD)</th>
+            {% endif %}
+            <th class="num">Cost (USD)</th>
+            <th class="num">% of Charges</th>
+          </tr></thead>
+          <tbody>
+            {% for r in ai.rows %}
+            <tr>
+              <td>{{ r.model or r.service }}</td>
+              <td><span class="cloud-badge badge-{{ r.provider|lower }}">{{ r.provider }}</span></td>
+              {% if ai.has_projects %}<td class="muted">{{ r.project or '—' }}</td>{% endif %}
+              {% if ai.has_tokens %}<td class="num">{% if r.tokens %}{{ "{:,.0f}".format(r.tokens) }}{% if r.unit %} <span class="muted">{{ r.unit }}</span>{% endif %}{% else %}—{% endif %}</td>{% endif %}
+              {% if ai.has_env_split %}
+              <td class="num">${{ "{:,.2f}".format(r.production) }}</td>
+              <td class="num">${{ "{:,.2f}".format(r.non_production) }}</td>
+              <td class="num">${{ "{:,.2f}".format(r.shared) }}</td>
+              {% endif %}
+              <td class="num"><strong>${{ "{:,.2f}".format(r.total) }}</strong></td>
+              <td class="num muted">{{ "{:.1f}".format(r.total / ai.subtotal * 100 if ai.subtotal else 0) }}%</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        </div>
+
+        {% if ai.top_users %}
+        <h2 class="section">Top Users by API Key / Owner</h2>
+        <p class="breakdown-legend">Who is driving spend, per provider. Cursor ranks by spend; Claude ranks by token volume (Anthropic does not expose cost per API key); Google (GCP billing) has no per-user attribution and is omitted.</p>
+        <div class="chart-row">
+          {% for provider, tu in ai.top_users.items() %}
+          <div>
+            <h3 class="table-caption"><span class="cloud-badge badge-{{ provider|lower }}">{{ provider }}</span> &nbsp; top {{ tu.rows|length }} by {{ tu.by }}</h3>
+            <table class="data">
+              <thead><tr>
+                <th>User / API Key</th>
+                <th class="num">Tokens</th>
+                <th class="num">Spend (USD)</th>
+              </tr></thead>
+              <tbody>
+                {% for u in tu.rows %}
+                <tr>
+                  <td>{{ u.user }}</td>
+                  <td class="num">{{ "{:,.0f}".format(u.tokens) if u.tokens else '—' }}</td>
+                  <td class="num">{% if u.cost %}${{ "{:,.2f}".format(u.cost) }}{% else %}—{% endif %}</td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+          {% endfor %}
+        </div>
+        {% endif %}
+
+        <h2 class="section">Provider &times; Model detail</h2>
+        <p class="breakdown-legend">Each provider expanded to the models that drove its spend.</p>
+        <div class="azure-breakdown">
+          {% for p in ai.providers %}
+          <details class="breakdown-card" {% if loop.index <= 3 %}open{% endif %}>
+            <summary>
+              <span class="svc"><span class="cloud-badge badge-{{ p.provider|lower }}">{{ p.provider }}</span></span>
+              <span class="nums">
+                {% if p.tokens %}<span class="nonprod"><span class="lbl">{{ p.unit|capitalize or 'Tokens' }}</span>{{ "{:,.0f}".format(p.tokens) }}</span>{% endif %}
+                <span class="total"><span class="lbl">Total</span>${{ "{:,.2f}".format(p.total) }}</span>
+              </span>
+            </summary>
+            <div style="padding:0 16px 12px;border-top:1px solid var(--line)">
+              <ul class="rg-list">
+                {% for m in p.models %}
+                <li><span>{{ m.model or m.service }}{% if m.project %} · {{ m.project }}{% endif %}</span><span>{% if m.tokens %}{{ "{:,.0f}".format(m.tokens) }} {{ m.unit or 'tok' }} · {% endif %}${{ "{:,.2f}".format(m.total) }}</span></li>
+                {% endfor %}
+              </ul>
+            </div>
+          </details>
+          {% endfor %}
+        </div>
+        {% else %}
+        <div class="empty-note">No AI / LLM spend for this month. Add a Cursor Team API key (<code>CURSOR_API_KEY</code>) or an Anthropic admin key (<code>ANTHROPIC_ADMIN_KEY</code>) to enable this.</div>
+        {% endif %}
+      </section>
+    </div>
+  </div>
+</div>
+
+<script>
+const MONTH_KEY = {{ month_key | tojson }};
+let dimChart, trendChart;
+
+/* ---------- Tabs ---------- */
+const VALID_TABS = ['overview', 'azure', 'aws', 'gcp', 'ai'];
+function showTab(name) {
+  if (!VALID_TABS.includes(name)) name = 'overview';
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === name));
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.toggle('active', p.dataset.tab === name));
+  try { history.replaceState(null, '', '#' + name); } catch (e) { location.hash = name; }
+  if (name === 'overview' && dimChart) { dimChart.resize(); trendChart && trendChart.resize(); }
+}
+document.querySelectorAll('.tab-btn').forEach(b => b.addEventListener('click', () => showTab(b.dataset.tab)));
+document.querySelectorAll('[data-goto]').forEach(el => el.addEventListener('click', () => showTab(el.dataset.goto)));
+
+/* ---------- Charts + filters ---------- */
+function chartTheme() {
+  const s = getComputedStyle(document.documentElement);
+  const v = (name, fb) => s.getPropertyValue(name).trim() || fb;
+  const accent = v('--accent', '#1db954');
+  return {
+    accent,
+    muted: v('--chart-text', '#b3b3b3'),
+    grid: v('--chart-grid', 'rgba(255,255,255,.06)'),
+    accentDim: v('--accent-dim', 'rgba(29,185,84,0.15)'),
+    palette: [
+      accent,
+      v('--accent-2', '#4c8dff'),
+      v('--accent-3', '#c084fc'),
+      v('--accent-4', '#f5a623'),
+      '#22d3ee', '#f472b6', '#34d399', '#fbbf24',
+    ],
+  };
+}
+
+function vGradient(ctx, area, hex) {
+  if (!area) return hex;
+  const g = ctx.createLinearGradient(0, area.top, 0, area.bottom);
+  g.addColorStop(0, hex + 'cc');
+  g.addColorStop(1, hex + '10');
+  return g;
+}
+
+if (window.Chart) {
+  Chart.defaults.font.family = getComputedStyle(document.body).fontFamily;
+  Chart.defaults.animation.duration = 600;
+  Chart.defaults.animation.easing = 'easeOutQuart';
+}
+
+function qs(id) { return document.getElementById(id).value; }
+
+function fmtMoney(n) {
+  return '$' + Number(n || 0).toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2});
+}
+
+function fmtCompact(n) {
+  n = Number(n || 0);
+  const a = Math.abs(n), sign = n < 0 ? '-' : '';
+  if (a >= 1e6) return sign + '$' + (a / 1e6).toFixed(1) + 'M';
+  if (a >= 1e3) return sign + '$' + (a / 1e3).toFixed(1) + 'K';
+  return sign + '$' + a.toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2});
+}
+
+function cloudColor(key) {
+  const s = getComputedStyle(document.documentElement);
+  const accent = s.getPropertyValue('--accent').trim() || '#1db954';
+  return { aws: '#f59b23', azure: accent, gcp: '#4285f4', cursor: '#94a3b8', claude: '#d97757', google: '#8a5cf6' }[key] || accent;
+}
+
+function renderSparklines() {
+  document.querySelectorAll('.spark[data-spark]').forEach(el => {
+    let data;
+    try { data = JSON.parse(el.dataset.spark); } catch (e) { return; }
+    if (!Array.isArray(data) || data.length < 2) { el.innerHTML = ''; return; }
+    const w = 100, h = 28, pad = 3;
+    const min = Math.min(...data), max = Math.max(...data), range = (max - min) || 1;
+    const pts = data.map((v, i) => {
+      const x = (i / (data.length - 1)) * w;
+      const y = h - pad - ((v - min) / range) * (h - 2 * pad);
+      return x.toFixed(1) + ',' + y.toFixed(1);
+    });
+    const color = el.dataset.cloud ? cloudColor(el.dataset.cloud) : cloudColor('azure');
+    const last = pts[pts.length - 1].split(',');
+    el.innerHTML =
+      `<svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" aria-hidden="true">` +
+      `<polygon points="0,${h} ${pts.join(' ')} ${w},${h}" fill="${color}" opacity="0.12"/>` +
+      `<polyline points="${pts.join(' ')}" fill="none" stroke="${color}" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>` +
+      `<circle cx="${last[0]}" cy="${last[1]}" r="1.9" fill="${color}"/></svg>`;
+  });
+}
+
+function renderSummary(summary, anyFilter) {
+  if (!summary) return;
+  const table = document.getElementById('summaryTable');
+  const hasCredits = table.dataset.credits === '1';
+  const hasTax = table.dataset.tax === '1';
+  const cells = (cloud, sub, cred, tax, total, strong) => {
+    let html = cloud;
+    html += `<td class="num">${fmtMoney(sub)}</td>`;
+    if (hasCredits) html += `<td class="num">${cred ? '−' : ''}${fmtMoney(cred)}</td>`;
+    if (hasTax) html += `<td class="num">${fmtMoney(tax)}</td>`;
+    html += strong ? `<td class="num"><strong>${fmtMoney(total)}</strong></td>`
+                   : `<td class="num">${fmtMoney(total)}</td>`;
+    return html;
+  };
+  const rows = summary.rows.map(r =>
+    `<tr>${cells(`<td><span class="cloud-badge badge-${r.cloud.toLowerCase()}">${r.cloud}</span></td>`,
+                 r.subtotal, r.credits, r.tax, r.total, true)}</tr>`
+  ).join('');
+  const totalRow = `<tr class="total">${cells('<td>Total (all clouds)</td>',
+      summary.gross_subtotal, summary.total_credits, summary.total_tax, summary.amount_due, false)}</tr>`;
+  document.getElementById('summaryBody').innerHTML = rows + totalRow;
+  const due = document.getElementById('amountDueValue');
+  due.textContent = fmtCompact(summary.amount_due);
+  due.title = fmtMoney(summary.amount_due);
+  document.getElementById('summaryFilterTag').hidden = !anyFilter;
+}
+
+function filterParams() {
+  const p = new URLSearchParams();
+  if (qs('fCloud')) p.set('cloud', qs('fCloud'));
+  if (qs('fSub')) p.set('subscription', qs('fSub'));
+  if (qs('fProduct')) p.set('product_group', qs('fProduct'));
+  if (qs('fEnv')) p.set('env_tier', qs('fEnv'));
+  if (qs('fSvc')) p.set('service', qs('fSvc'));
+  return p;
+}
+
+function applyCloudVisibility() {
+  const cloud = (qs('fCloud') || '').toLowerCase();
+  const showAzure = cloud === '' || cloud === 'azure';
+  document.querySelectorAll('.filter-item.azure-only').forEach(el => {
+    el.style.display = showAzure ? '' : 'none';
+    if (!showAzure) {
+      const sel = el.querySelector('select');
+      if (sel) sel.value = '';
+    }
+  });
+  const dim = document.getElementById('fDim');
+  dim.querySelectorAll('option.dim-azure-only').forEach(o => {
+    o.hidden = !showAzure;
+    o.disabled = !showAzure;
+  });
+  if (!showAzure && (dim.value === 'subscription' || dim.value === 'resource_group')) {
+    dim.value = 'service';
+  }
+
+  const svc = document.getElementById('fSvc');
+  svc.querySelectorAll('option[data-clouds]').forEach(o => {
+    const optClouds = (o.getAttribute('data-clouds') || '').toLowerCase().split(' ');
+    const match = cloud === '' || optClouds.includes(cloud);
+    o.hidden = !match;
+    o.disabled = !match;
+  });
+  const cur = svc.selectedOptions[0];
+  if (cur && cur.value && cur.disabled) svc.value = '';
+}
+
+function clearFilters() {
+  ['fCloud','fSub','fProduct','fEnv','fSvc','fDim'].forEach(id => document.getElementById(id).value = '');
+  applyCloudVisibility();
+  refreshCharts();
+}
+
+async function refreshCharts() {
+  const fp = filterParams();
+  const dim = qs('fDim');
+  try {
+    const [chartRes, trendRes] = await Promise.all([
+      fetch(`/api/reports/${MONTH_KEY}/chart?dimension=${dim}&${fp}`),
+      fetch(`/api/trend/filtered?${fp}`),
+    ]);
+    if (!chartRes.ok || !trendRes.ok) {
+      console.error('chart API error', chartRes.status, trendRes.status);
+      ['dimCard','trendCard'].forEach(id => {
+        const c = document.getElementById(id);
+        c.classList.add('loaded', 'empty');
+      });
+      return;
+    }
+    const chart = await chartRes.json();
+    const trend = await trendRes.json();
+
+    document.getElementById('filterTotal').textContent = '$' + chart.total.toLocaleString(undefined, {minimumFractionDigits:2});
+    const parts = Object.entries(chart.filters || {}).map(([k,v]) => k + '=' + v);
+    const base = 'Environment: pd · dv · st · ut. Workloads: Ecommerce, Shared, VRE, AI, Bioinfo, Others.';
+    document.getElementById('filterHint').textContent = parts.length ? base + ' Active: ' + parts.join(' · ') : base;
+
+    renderSummary(chart.summary, parts.length > 0);
+
+    const dimCard = document.getElementById('dimCard');
+    const trendCard = document.getElementById('trendCard');
+    const hasDim = (chart.series || []).length > 0;
+    const hasTrend = (trend.trend || []).length > 1;
+    dimCard.classList.toggle('empty', !hasDim);
+    dimCard.classList.add('loaded');
+    trendCard.classList.toggle('empty', !hasTrend);
+    trendCard.classList.add('loaded');
+
+    if (dimChart) dimChart.destroy();
+    const theme = chartTheme();
+    const moneyTip = { callbacks: { label: (c) => ' ' + fmtMoney(typeof c.raw === 'number' ? c.raw : (c.parsed.y ?? c.parsed.x)) } };
+    dimChart = new Chart(document.getElementById('dimChart'), {
+      type: 'bar',
+      data: {
+        labels: chart.series.map(s => s.label),
+        datasets: [{
+          label: 'Cost',
+          data: chart.series.map(s => s.cost),
+          backgroundColor: chart.series.map((_, i) => theme.palette[i % theme.palette.length]),
+          borderRadius: 6,
+          borderSkipped: false,
+          maxBarThickness: 26,
+          hoverBackgroundColor: theme.accent,
+        }]
+      },
+      options: { indexAxis: 'y', responsive: true, maintainAspectRatio: true,
+        plugins: { legend: { display: false }, tooltip: moneyTip,
+          title: { display: true, text: 'By ' + dim.replace('_',' '), color: theme.muted, font:{size:13, weight:'600'} } },
+        scales: { x: { ticks:{color:theme.muted, callback:(v)=>'$'+Number(v).toLocaleString()}, grid:{color:theme.grid, drawBorder:false} },
+          y: { ticks:{color:theme.muted, font:{size:10}}, grid:{display:false} } } }
+    });
+
+    if (trendChart) trendChart.destroy();
+    trendChart = new Chart(document.getElementById('trendChart'), {
+      type: 'line',
+      data: {
+        labels: trend.trend.map(pt => pt.month),
+        datasets: [{ label: 'Monthly spend', data: trend.trend.map(pt => pt.cost),
+          borderColor: theme.accent, borderWidth: 2.5,
+          backgroundColor: (c) => vGradient(c.chart.ctx, c.chart.chartArea, theme.accent),
+          fill: true, tension: .35,
+          pointRadius: 3, pointHoverRadius: 5,
+          pointBackgroundColor: theme.accent, pointBorderColor: theme.accent }]
+      },
+      options: { responsive: true, maintainAspectRatio: true,
+        plugins: { legend: { display: false }, tooltip: moneyTip,
+          title: { display: true, text: 'Spend trend (filtered)', color: theme.muted, font:{size:13, weight:'600'} } },
+        scales: { x: { ticks:{color:theme.muted}, grid:{color:theme.grid, drawBorder:false} },
+          y: { ticks:{color:theme.muted, callback:(v)=>'$'+Number(v).toLocaleString()}, grid:{color:theme.grid, drawBorder:false} } } }
+    });
+  } catch (err) {
+    console.error('refreshCharts failed', err);
+    ['dimCard','trendCard'].forEach(id => {
+      const c = document.getElementById(id);
+      if (c) c.classList.add('loaded', 'empty');
+    });
+  }
+}
+
+document.addEventListener('ccr-theme-change', () => { refreshCharts(); renderSparklines(); });
+
+document.getElementById('fCloud').addEventListener('change', applyCloudVisibility);
+['fCloud','fSub','fProduct','fEnv','fSvc','fDim'].forEach(id =>
+  document.getElementById(id).addEventListener('change', refreshCharts));
+
+showTab((location.hash || '#overview').slice(1));
+applyCloudVisibility();
+renderSparklines();
+refreshCharts();
+</script>
+{% endblock %}

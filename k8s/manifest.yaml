@@ -1,0 +1,424 @@
+# Cloud Cost Reporter. CircleCI replaces CONTAINER_IMAGE.
+# Secrets come from Key Vault via CSI (azure-keyvault-spc → finops-keyvault-secrets).
+# Service account + workload identity are owned by Terraform (k8s/base).
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app: cloud-cost-reporter
+  name: cloud-cost-reporter
+  namespace: finops
+spec:
+  ports:
+  - name: http
+    port: 80
+    protocol: TCP
+    targetPort: 8080
+  selector:
+    app: cloud-cost-reporter
+  sessionAffinity: None
+  type: ClusterIP
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cloud-cost-reporter
+  namespace: finops
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app: cloud-cost-reporter
+  template:
+    metadata:
+      labels:
+        app: cloud-cost-reporter
+        azure.workload.identity/use: "true"
+    spec:
+      serviceAccountName: cloud-cost-reporter
+      nodeSelector:
+        agentpool: apps
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: cloud-cost-reporter
+          image: CONTAINER_IMAGE
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            privileged: false
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          ports:
+            - containerPort: 8080
+          env:
+            - name: APP_ENV
+              value: "production"
+            - name: KEY_VAULT_REQUIRED
+              value: "false"
+            - name: AWS_ENABLED
+              value: "true"
+            - name: AZURE_ENABLED
+              value: "true"
+            - name: GCP_ENABLED
+              value: "true"
+            - name: CURSOR_ENABLED
+              value: "true"
+            - name: ANTHROPIC_ENABLED
+              value: "true"
+            - name: EMAIL_ENABLED
+              value: "true"
+            - name: DB_AUTH
+              value: "password"
+            - name: AWS_DEFAULT_REGION
+              value: "us-east-1"
+            - name: HOME
+              value: "/tmp"
+            - name: XDG_CACHE_HOME
+              value: "/tmp/.cache"
+            - name: GOOGLE_APPLICATION_CREDENTIALS
+              value: "/var/secrets/gcp/gcp-key.json"
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: finops-keyvault-secrets
+                  key: FINOPS-DATABASE-URL
+            - name: BASIC_AUTH_USER
+              valueFrom:
+                secretKeyRef:
+                  name: finops-keyvault-secrets
+                  key: FINOPS-BASIC-AUTH-USER
+            - name: BASIC_AUTH_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: finops-keyvault-secrets
+                  key: FINOPS-BASIC-AUTH-PASSWORD
+            - name: SESSION_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: finops-keyvault-secrets
+                  key: FINOPS-SESSION-SECRET
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: finops-keyvault-secrets
+                  key: FINOPS-AWS-ACCESS-KEY-ID
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: finops-keyvault-secrets
+                  key: FINOPS-AWS-SECRET-ACCESS-KEY
+            - name: CURSOR_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: finops-keyvault-secrets
+                  key: FINOPS-CURSOR-API-KEY
+            - name: ANTHROPIC_ADMIN_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: finops-keyvault-secrets
+                  key: FINOPS-ANTHROPIC-ADMIN-KEY
+            - name: ACS_CONNECTION_STRING
+              valueFrom:
+                secretKeyRef:
+                  name: finops-keyvault-secrets
+                  key: FINOPS-ACS-CONNECTION-STRING
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          volumeMounts:
+            - name: secrets-store
+              mountPath: /mnt/secrets-store
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+            - name: gcp-key
+              mountPath: /var/secrets/gcp
+              readOnly: true
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            periodSeconds: 15
+            timeoutSeconds: 3
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 8080
+            periodSeconds: 10
+            timeoutSeconds: 3
+            successThreshold: 1
+            failureThreshold: 3
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            failureThreshold: 30
+            periodSeconds: 5
+            timeoutSeconds: 3
+      volumes:
+        - name: secrets-store
+          csi:
+            driver: secrets-store.csi.k8s.io
+            readOnly: true
+            volumeAttributes:
+              secretProviderClass: azure-keyvault-spc
+        - name: tmp
+          emptyDir: {}
+        - name: gcp-key
+          secret:
+            secretName: es-cloud-cost-reporter-gcp
+            optional: true
+      dnsPolicy: ClusterFirst
+      restartPolicy: Always
+      terminationGracePeriodSeconds: 30
+---
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: cloud-cost-reporter
+  namespace: prod
+spec:
+  gateways:
+    - aks-istio-ingress/private-gateway
+  hosts:
+    - finops.internal.example.com
+  http:
+  - route:
+      - destination:
+          host: cloud-cost-reporter.finops.svc.cluster.local
+          port:
+            number: 80
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: cloud-cost-reporter-monthly
+  namespace: finops
+spec:
+  schedule: "0 2 6 * *"
+  timeZone: "Asia/Kolkata"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      activeDeadlineSeconds: 1800
+      template:
+        metadata:
+          labels:
+            sidecar.istio.io/inject: "false"
+            azure.workload.identity/use: "true"
+        spec:
+          serviceAccountName: cloud-cost-reporter
+          nodeSelector:
+            agentpool: apps
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 10001
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: cloud-cost-reporter-monthly
+              image: CONTAINER_IMAGE
+              imagePullPolicy: IfNotPresent
+              securityContext:
+                privileged: false
+                readOnlyRootFilesystem: true
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop: ["ALL"]
+              env:
+                - name: APP_ENV
+                  value: "production"
+                - name: KEY_VAULT_REQUIRED
+                  value: "false"
+                - name: EMAIL_ENABLED
+                  value: "true"
+                - name: DB_AUTH
+                  value: "password"
+                - name: HOME
+                  value: "/tmp"
+                - name: XDG_CACHE_HOME
+                  value: "/tmp/.cache"
+                - name: GOOGLE_APPLICATION_CREDENTIALS
+                  value: "/var/secrets/gcp/gcp-key.json"
+                - name: DATABASE_URL
+                  valueFrom:
+                    secretKeyRef:
+                      name: finops-keyvault-secrets
+                      key: FINOPS-DATABASE-URL
+                - name: AWS_ACCESS_KEY_ID
+                  valueFrom:
+                    secretKeyRef:
+                      name: finops-keyvault-secrets
+                      key: FINOPS-AWS-ACCESS-KEY-ID
+                - name: AWS_SECRET_ACCESS_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: finops-keyvault-secrets
+                      key: FINOPS-AWS-SECRET-ACCESS-KEY
+                - name: CURSOR_API_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: finops-keyvault-secrets
+                      key: FINOPS-CURSOR-API-KEY
+                - name: ANTHROPIC_ADMIN_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: finops-keyvault-secrets
+                      key: FINOPS-ANTHROPIC-ADMIN-KEY
+                - name: ACS_CONNECTION_STRING
+                  valueFrom:
+                    secretKeyRef:
+                      name: finops-keyvault-secrets
+                      key: FINOPS-ACS-CONNECTION-STRING
+              command:
+                - python
+                - -m
+                - src.main
+                - --output
+                - /tmp/report.pdf
+              volumeMounts:
+                - name: secrets-store
+                  mountPath: /mnt/secrets-store
+                  readOnly: true
+                - name: tmp
+                  mountPath: /tmp
+                - name: gcp-key
+                  mountPath: /var/secrets/gcp
+                  readOnly: true
+              resources:
+                requests:
+                  cpu: 100m
+                  memory: 256Mi
+                limits:
+                  cpu: 500m
+                  memory: 512Mi
+          volumes:
+            - name: secrets-store
+              csi:
+                driver: secrets-store.csi.k8s.io
+                readOnly: true
+                volumeAttributes:
+                  secretProviderClass: azure-keyvault-spc
+            - name: tmp
+              emptyDir: {}
+            - name: gcp-key
+              secret:
+                secretName: es-cloud-cost-reporter-gcp
+                optional: true
+          restartPolicy: OnFailure
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: cloud-cost-reporter-cursor-spend
+  namespace: finops
+spec:
+  schedule: "30 23 * * *"
+  timeZone: "Asia/Kolkata"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      activeDeadlineSeconds: 600
+      template:
+        metadata:
+          labels:
+            sidecar.istio.io/inject: "false"
+            azure.workload.identity/use: "true"
+        spec:
+          serviceAccountName: cloud-cost-reporter
+          nodeSelector:
+            agentpool: apps
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 10001
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: cloud-cost-reporter-cursor-spend
+              image: CONTAINER_IMAGE
+              imagePullPolicy: IfNotPresent
+              securityContext:
+                privileged: false
+                readOnlyRootFilesystem: true
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop: ["ALL"]
+              env:
+                - name: APP_ENV
+                  value: "production"
+                - name: KEY_VAULT_REQUIRED
+                  value: "false"
+                - name: HOME
+                  value: "/tmp"
+                - name: XDG_CACHE_HOME
+                  value: "/tmp/.cache"
+                - name: DATABASE_URL
+                  valueFrom:
+                    secretKeyRef:
+                      name: finops-keyvault-secrets
+                      key: FINOPS-DATABASE-URL
+                - name: CURSOR_API_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: finops-keyvault-secrets
+                      key: FINOPS-CURSOR-API-KEY
+              command:
+                - python
+                - -m
+                - src.main
+                - --cursor-spend-snapshot
+              volumeMounts:
+                - name: secrets-store
+                  mountPath: /mnt/secrets-store
+                  readOnly: true
+                - name: tmp
+                  mountPath: /tmp
+              resources:
+                requests:
+                  cpu: 50m
+                  memory: 128Mi
+                limits:
+                  cpu: 250m
+                  memory: 256Mi
+          volumes:
+            - name: secrets-store
+              csi:
+                driver: secrets-store.csi.k8s.io
+                readOnly: true
+                volumeAttributes:
+                  secretProviderClass: azure-keyvault-spc
+            - name: tmp
+              emptyDir: {}
+          restartPolicy: OnFailure
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: cloud-cost-reporter
+  namespace: finops
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: cloud-cost-reporter

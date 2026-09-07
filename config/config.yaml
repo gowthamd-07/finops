@@ -1,0 +1,106 @@
+# FinOps configuration.
+# Non-secret settings live here. Secrets come from the environment
+# (local .env or Kubernetes / Key Vault). Never commit real credentials.
+
+report:
+  currency: USD
+  title: "Monthly Cloud Infrastructure Cost"
+
+azure:
+  enabled: true
+  tenant_id: "00000000-0000-0000-0000-000000000001"
+  invoice_overlay: true
+  subscriptions:
+    - id: "00000000-0000-0000-0000-000000000011"
+      name: "Production"
+      environment: production
+    - id: "00000000-0000-0000-0000-000000000012"
+      name: "NonProduction"
+      environment: non-production
+    - id: "00000000-0000-0000-0000-000000000013"
+      name: "Connectivity"
+      environment: shared
+    - id: "00000000-0000-0000-0000-000000000014"
+      name: "Management"
+      environment: shared
+  billing_account_name: ""
+  resource_group_overrides: {}
+  resource_group_patterns: []
+  default_environment: non-production
+
+aws:
+  enabled: true
+  region: us-east-1
+  profile: ""
+
+gcp:
+  enabled: true
+  source: auto
+  bigquery_reconcile_ratio: 0.98
+  currency: USD
+  csv_dir: "gcp-billing"
+  default_environment: production
+  project_overrides: {}
+  project_patterns:
+    - pattern: "(^|[-_])(dev|develop|development)([-_]|$)"
+      environment: non-production
+    - pattern: "(^|[-_])(uat|test|tst|stg|stage|staging|qa|sandbox|sbx|nonprod|non-prod)([-_]|$)"
+      environment: non-production
+  bigquery:
+    - project: "billing-prod"
+      dataset: "billing_export"
+    - project: "ml-dev"
+      dataset: "billing_export"
+
+cursor:
+  enabled: true
+  api_key: "${CURSOR_API_KEY}"
+  environment: production
+  billing_cycle_day: 27
+  seats:
+    enabled: true
+    seat_price: 40.0
+    tax_rate: 10.3
+    bugbot_seats: 2
+  billing_mode: billed
+
+anthropic:
+  enabled: true
+  admin_key: "${ANTHROPIC_ADMIN_KEY}"
+  environment: production
+  tax_rate: 10.3
+  credits:
+    enabled: false
+    current_balance: 0
+    original_amount: 0
+    expiry_date: ""
+    burn_window_months: 6
+
+ai:
+  gcp_service_patterns:
+    - "vertex ai"
+    - "generative language"
+    - "gemini"
+
+email:
+  enabled: false
+  sender: "noreply@example.com"
+  recipients:
+    - "finops@example.com"
+  connection_string: "${ACS_CONNECTION_STRING}"
+  endpoint: "${ACS_ENDPOINT}"
+  subject_template: "Monthly Cloud Infrastructure Cost - {month} {year}"
+
+database:
+  url: "${DATABASE_URL}"
+  auth: "${DB_AUTH:-password}"
+
+analytics:
+  baseline_month: "2026-01"
+
+credits:
+  enabled: false
+  current_balance: 0
+  original_amount: 0
+  expiry_date: ""
+  burn_window_months: 12

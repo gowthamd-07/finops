@@ -1,0 +1,104 @@
+{% extends "base.html" %}
+{% block title %}New report — FinOps{% endblock %}
+{% block body %}
+<div class="layout">
+  {% include "_topnav.html" %}
+  <div class="main">
+    <div class="topbar topbar-split">
+      <div>
+        <h1>New report</h1>
+        <div class="sub">Generate a monthly report or open a saved one below</div>
+      </div>
+    </div>
+    <div class="content">
+      {% if db_error %}<div class="alert alert-error">{{ db_error }}</div>{% endif %}
+
+      {% if role == 'admin' %}
+      <h2 class="section">Generate</h2>
+      <form class="gen" method="post" action="/generate">
+        <div>
+          <label class="field">Report month</label>
+          <div class="month-picker" data-max-month="{{ max_month }}">
+            <select class="select" id="pickMonth" aria-label="Month">
+              <option value="01">January</option>
+              <option value="02">February</option>
+              <option value="03">March</option>
+              <option value="04">April</option>
+              <option value="05">May</option>
+              <option value="06">June</option>
+              <option value="07">July</option>
+              <option value="08">August</option>
+              <option value="09">September</option>
+              <option value="10">October</option>
+              <option value="11">November</option>
+              <option value="12">December</option>
+            </select>
+            <select class="select" id="pickYear" aria-label="Year">
+              {% set max_y = max_month[:4] | int %}
+              {% for y in range(2020, max_y + 1) %}
+              <option value="{{ y }}">{{ y }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <p class="filter-hint" style="margin-top:8px">Reports are available through the last completed month ({{ max_month }}).</p>
+          <input type="hidden" name="month" id="monthValue" value="{{ default_month }}" />
+        </div>
+        <div>
+          <label class="field">Clouds</label>
+          <div class="cloud-pills">
+            <label class="cloud-pill"><input type="checkbox" name="clouds" value="aws" checked> AWS</label>
+            <label class="cloud-pill"><input type="checkbox" name="clouds" value="azure" checked> Azure</label>
+            <label class="cloud-pill"><input type="checkbox" name="clouds" value="gcp" checked> GCP</label>
+          </div>
+        </div>
+        <div>
+          <label class="field">Options</label>
+          <div class="cloud-pills">
+            <label class="cloud-pill"><input type="checkbox" name="email" value="true"> Email report</label>
+          </div>
+        </div>
+        <button type="submit" class="btn">Generate report</button>
+      </form>
+      <p class="filter-hint" style="margin-top:12px">
+        If the month already exists in the database, it opens instantly with no cloud API calls.
+        To re-fetch billing data, open the report and use <strong>Regenerate</strong>.
+      </p>
+      {% endif %}
+
+      {% if months %}
+      <h2 class="section">Saved reports</h2>
+      <div class="month-grid">
+        {% for m in months %}
+        {% set meta = report_meta.get(m, {}) %}
+        <a class="month-card" href="/reports/{{ m }}">
+          <span class="mc-label">Amount due</span>
+          <span class="mc-key">{{ m }}</span>
+          {% if meta.grand_total is defined %}
+          <span class="mc-total">${{ "{:,.2f}".format(meta.grand_total) }}</span>
+          {% endif %}
+          <span class="mc-hint">View report →</span>
+        </a>
+        {% endfor %}
+      </div>
+      {% else %}
+      <h2 class="section">Saved reports</h2>
+      <div class="insight-box">No reports yet. Pick a month above and click <strong>Generate report</strong>.</div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+(function () {
+  function boot() {
+    initMonthPicker({{ default_month | tojson }}, {{ max_month | tojson }});
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', boot);
+  } else {
+    boot();
+  }
+})();
+</script>
+{% endblock %}

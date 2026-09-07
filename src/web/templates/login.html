@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% block title %}Sign in — FinOps{% endblock %}
+{% block body %}
+<div class="login-page">
+  <button type="button" class="theme-toggle login-theme" id="themeToggle" title="Toggle dark / light mode" aria-label="Toggle theme">
+    <span class="theme-icon theme-icon-dark">☀</span>
+    <span class="theme-icon theme-icon-light">☾</span>
+  </button>
+  <div class="login-wrap">
+    <div class="login-brand">
+      <div class="login-logo">Fin<span>Ops</span></div>
+      <p class="login-tagline">Cloud cost reporting &amp; analytics</p>
+    </div>
+    <div class="card login-card">
+      {% if error %}
+      <div class="alert alert-error" style="margin-bottom:16px">{{ error }}</div>
+      {% endif %}
+      <form method="post" action="/login">
+        <div style="margin-bottom:16px">
+          <label class="field" for="username">Username</label>
+          <input type="text" id="username" name="username" required autofocus style="width:100%" />
+        </div>
+        <div style="margin-bottom:24px">
+          <label class="field" for="password">Password</label>
+          <input type="password" id="password" name="password" required style="width:100%" />
+        </div>
+        <button type="submit" class="btn" style="width:100%;padding:12px">Sign in</button>
+      </form>
+    </div>
+    <p class="login-footer">AWS · Azure monthly cost reports</p>
+  </div>
+</div>
+<style>
+  .login-page {
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    background: radial-gradient(ellipse at top, var(--accent-dim) 0%, var(--bg) 55%);
+    position: relative;
+  }
+  [data-theme="light"] .login-page {
+    background: radial-gradient(ellipse at top, var(--accent-dim) 0%, var(--surface) 60%);
+  }
+  .login-theme {
+    position: absolute;
+    top: 20px;
+    right: 20px;
+  }
+  .login-wrap { width: 100%; max-width: 400px; }
+  .login-brand { text-align: center; margin-bottom: 32px; }
+  .login-logo { font-size: 28px; font-weight: 700; }
+  .login-logo span { color: var(--accent); }
+  .login-tagline { color: var(--muted); font-size: 14px; margin-top: 8px; }
+  .login-card { padding: 28px; }
+  .login-footer { text-align: center; color: var(--muted); font-size: 12px; margin-top: 20px; }
+</style>
+{% endblock %}

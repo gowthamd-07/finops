@@ -1,0 +1,130 @@
+{% extends "base.html" %}
+{% block title %}Admin — FinOps{% endblock %}
+{% block body %}
+<div class="layout">
+  {% include "_topnav.html" %}
+  <div class="main">
+    <div class="topbar topbar-split">
+      <div>
+        <h1>Admin</h1>
+        <div class="sub">Manage users and Azure billing data</div>
+      </div>
+    </div>
+    <div class="content">
+      {% if error %}<div class="alert alert-error">{{ error }}</div>{% endif %}
+      {% if notice %}<div class="alert" style="background:var(--accent-dim);border:1px solid var(--accent-glow);color:var(--text)">{{ notice }}</div>{% endif %}
+
+      <!-- ---------------------------------------------------------------- -->
+      <h2 class="section">Users</h2>
+      <div class="two-col">
+        <div>
+          <table class="data">
+            <thead><tr><th>Username</th><th>Role</th><th>Created</th><th></th></tr></thead>
+            <tbody>
+              {% for u in users %}
+              <tr>
+                <td>{{ u.username }}</td>
+                <td><span class="cloud-badge {{ 'badge-azure' if u.role == 'admin' else 'badge-viewer' }}">{{ u.role }}</span></td>
+                <td class="muted">{{ u.created_at.strftime('%Y-%m-%d') if u.created_at else '' }}</td>
+                <td class="num">
+                  {% if u.username != user %}
+                  <form method="post" action="/admin/users/delete" style="display:inline" onsubmit="return confirm('Delete user {{ u.username }}?')">
+                    <input type="hidden" name="username" value="{{ u.username }}" />
+                    <button type="submit" class="btn btn-outline" style="padding:6px 12px;color:var(--danger);border-color:rgba(233,20,41,.4)">Delete</button>
+                  </form>
+                  {% else %}
+                  <span class="muted" style="font-size:12px">you</span>
+                  {% endif %}
+                </td>
+              </tr>
+              {% endfor %}
+              {% if not users %}
+              <tr><td colspan="4" class="muted">No users yet. The bootstrap admin (BASIC_AUTH_USER) is still active until you add one.</td></tr>
+              {% endif %}
+            </tbody>
+          </table>
+        </div>
+        <div>
+          <form class="filters-panel" method="post" action="/admin/users" style="margin:0">
+            <h3 style="margin:0 0 14px;font-size:14px">Add / update user</h3>
+            <div style="margin-bottom:12px">
+              <label class="field" for="nu">Username</label>
+              <input type="text" id="nu" name="username" required style="width:100%" />
+            </div>
+            <div style="margin-bottom:12px">
+              <label class="field" for="np">Password</label>
+              <input type="password" id="np" name="password" required style="width:100%" />
+            </div>
+            <div style="margin-bottom:16px">
+              <label class="field" for="nr">Role</label>
+              <select class="select" id="nr" name="role">
+                {% for r in roles %}<option value="{{ r }}">{{ r }}</option>{% endfor %}
+              </select>
+              <p class="filter-hint"><strong>admin</strong>: full access. <strong>viewer</strong>: view reports &amp; download PDFs only.</p>
+            </div>
+            <button type="submit" class="btn">Save user</button>
+          </form>
+        </div>
+      </div>
+
+      <!-- ---------------------------------------------------------------- -->
+      <h2 class="section">Billing — Azure invoices</h2>
+      <div class="insight-box" style="margin-bottom:16px">
+        Billing account: <strong>{{ billing_account or "not configured" }}</strong>.
+        Credits: {% if credits.enabled %}balance ${{ "{:,.2f}".format(credits.current_balance or 0) }}{% if credits.original_amount %} of ${{ "{:,.2f}".format(credits.original_amount) }}{% endif %}{% if credits.expiry_date %}, expires {{ credits.expiry_date }}{% endif %}{% else %}forecast disabled{% endif %}.
+      </div>
+
+      <form method="post" action="/admin/billing/fetch" class="gen" style="margin-bottom:18px">
+        <div>
+          <label class="field" for="fm">Fetch invoice from Billing API</label>
+          <input type="text" id="fm" name="month" placeholder="YYYY-MM" value="{{ default_month }}" pattern="\d{4}-\d{2}" required />
+          <p class="filter-hint">Pulls Charges / Azure Credit / Tax / Total for that month into the database.</p>
+        </div>
+        <button type="submit" class="btn">Fetch from API</button>
+      </form>
+
+      <table class="data">
+        <thead>
+          <tr><th>Month</th><th>Invoice</th><th class="num">Charges</th><th class="num">Azure Credit</th><th class="num">Other Credits</th><th class="num">Tax</th><th class="num">Amount Due</th><th></th></tr>
+        </thead>
+        <tbody>
+          {% for inv in invoices %}
+          <tr>
+            <td>{{ inv.month }}</td>
+            <td class="muted">{{ inv.invoice_number or "—" }}</td>
+            <td class="num">${{ "{:,.2f}".format(inv.charges) }}</td>
+            <td class="num">${{ "{:,.2f}".format(inv.azure_credit) }}</td>
+            <td class="num">${{ "{:,.2f}".format(inv.other_credits) }}</td>
+            <td class="num">${{ "{:,.2f}".format(inv.tax) }}</td>
+            <td class="num">${{ "{:,.2f}".format(inv.total) }}</td>
+            <td class="num">
+              <form method="post" action="/admin/billing/invoice/delete" style="display:inline" onsubmit="return confirm('Delete invoice {{ inv.month }}?')">
+                <input type="hidden" name="month" value="{{ inv.month }}" />
+                <button type="submit" class="btn btn-outline" style="padding:6px 12px;color:var(--danger);border-color:rgba(233,20,41,.4)">Delete</button>
+              </form>
+            </td>
+          </tr>
+          {% endfor %}
+          {% if not invoices %}
+          <tr><td colspan="8" class="muted">No invoices stored. Fetch from the API or add one manually below.</td></tr>
+          {% endif %}
+        </tbody>
+      </table>
+
+      <form class="filters-panel" method="post" action="/admin/billing/invoice" style="margin-top:18px">
+        <h3 style="margin:0 0 14px;font-size:14px">Add / edit invoice manually</h3>
+        <div class="filter-grid">
+          <div class="filter-item"><label class="field">Month (YYYY-MM)</label><input type="text" name="month" pattern="\d{4}-\d{2}" placeholder="2026-05" required style="width:100%" /></div>
+          <div class="filter-item"><label class="field">Invoice #</label><input type="text" name="invoice_number" style="width:100%" /></div>
+          <div class="filter-item"><label class="field">Charges</label><input type="text" name="charges" value="0" style="width:100%" /></div>
+          <div class="filter-item"><label class="field">Azure Credit</label><input type="text" name="azure_credit" value="0" style="width:100%" /></div>
+          <div class="filter-item"><label class="field">Other Credits</label><input type="text" name="other_credits" value="0" style="width:100%" /></div>
+          <div class="filter-item"><label class="field">Tax</label><input type="text" name="tax" value="0" style="width:100%" /></div>
+          <div class="filter-actions"><button type="submit" class="btn">Save invoice</button></div>
+        </div>
+        <p class="filter-hint">Amount due is computed as Charges − Azure Credit − Other Credits + Tax.</p>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,463 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<style>
+  @page { size: A4; margin: 18mm 14mm; }
+  body { font-family: "Helvetica Neue", Arial, sans-serif; color: #1f2933; font-size: 10px; }
+  h1 { font-size: 20px; margin: 0 0 2px; }
+  h2 { font-size: 13px; margin: 18px 0 6px; border-bottom: 2px solid #2563eb; padding-bottom: 3px; color: #1d4ed8; }
+  h3 { font-size: 11px; margin: 14px 0 6px; color: #374151; font-weight: 600; }
+  .subtitle { color: #6b7280; margin-bottom: 12px; }
+  table { width: 100%; border-collapse: collapse; margin-bottom: 8px; }
+  th, td { padding: 4px 6px; text-align: left; border-bottom: 1px solid #e5e7eb; vertical-align: top; }
+  th { background: #f3f4f6; font-size: 9px; text-transform: uppercase; letter-spacing: .03em; color: #374151; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  tr.total td { font-weight: 700; background: #eef2ff; border-top: 2px solid #2563eb; }
+  .up { color: #b91c1c; }
+  .down { color: #047857; }
+  .muted { color: #6b7280; font-size: 9px; }
+  .rg { font-size: 8px; color: #4b5563; line-height: 1.4; }
+  .break { page-break-before: always; }
+</style>
+</head>
+<body>
+  <h1>{{ data.title }}</h1>
+  <div class="subtitle">{{ data.month }} {{ data.year }} &middot; All amounts in {{ data.currency }}</div>
+
+  <h2>Summary — All Clouds</h2>
+  <p><strong>Amount due:</strong> {{ "{:,.2f}".format(data.amount_due) }} {{ data.currency }}</p>
+  <table>
+    <thead>
+      <tr>
+        <th>Cloud Provider</th>
+        <th class="num">Charges (USD)</th>
+        {% if data.show_credits %}<th class="num">Credits (USD)</th>{% endif %}
+        {% if data.total_tax > 0 %}<th class="num">Tax (USD)</th>{% endif %}
+        <th class="num">Amount Due (USD)</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for s in data.summaries %}
+      <tr>
+        <td>{{ s.cloud }}</td>
+        <td class="num">{{ "{:,.2f}".format(s.subtotal) }}</td>
+        {% if data.show_credits %}<td class="num">{% if s.credits %}-{% endif %}{{ "{:,.2f}".format(s.credits) }}</td>{% endif %}
+        {% if data.total_tax > 0 %}<td class="num">{{ "{:,.2f}".format(s.tax) }}</td>{% endif %}
+        <td class="num">{{ "{:,.2f}".format(s.total) }}</td>
+      </tr>
+      {% endfor %}
+      <tr class="total">
+        <td>Total (all clouds)</td>
+        <td class="num">{{ "{:,.2f}".format(data.gross_subtotal) }}</td>
+        {% if data.show_credits %}<td class="num">{% if data.total_credits %}-{% endif %}{{ "{:,.2f}".format(data.total_credits) }}</td>{% endif %}
+        {% if data.total_tax > 0 %}<td class="num">{{ "{:,.2f}".format(data.total_tax) }}</td>{% endif %}
+        <td class="num">{{ "{:,.2f}".format(data.amount_due) }}</td>
+      </tr>
+    </tbody>
+  </table>
+
+  {% if azure_sub %}
+  <h2>Azure — By Subscription</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>Service Name</th>
+        {% for n in azure_sub.subscription_names %}
+        <th class="num">{{ n }}</th>
+        {% endfor %}
+        <th class="num">Total (USD)</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in azure_sub.rows %}
+      <tr>
+        <td>{{ row.service }}</td>
+        {% for n in azure_sub.subscription_names %}
+        <td class="num">{{ "{:,.2f}".format(row.by_subscription.get(n, 0)) }}</td>
+        {% endfor %}
+        <td class="num">{{ "{:,.2f}".format(row.total) }}</td>
+      </tr>
+      {% endfor %}
+      <tr class="total">
+        <td>Total Cost</td>
+        {% for n in azure_sub.subscription_names %}
+        <td class="num">{{ "{:,.2f}".format(azure_sub.totals.get(n, 0)) }}</td>
+        {% endfor %}
+        <td class="num">{{ "{:,.2f}".format(azure_sub.total) }}</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2>Azure — Cost Breakdown</h2>
+  <p class="muted">Resource groups grouped by workload (Ecommerce, Shared, VRE, AI, Bioinfo, Others). Production = pd · Non-Production = st/dv.</p>
+  <table>
+    <thead>
+      <tr>
+        <th>Service Name</th>
+        <th class="num">Production (USD)</th>
+        <th class="num">Non-Production (USD)</th>
+        <th class="num">Total (USD)</th>
+        <th>Resource groups (by product)</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in azure_breakdown %}
+      <tr>
+        <td>{{ row.service }}</td>
+        <td class="num">{{ "{:,.2f}".format(row.production) }}</td>
+        <td class="num">{{ "{:,.2f}".format(row.non_production) }}</td>
+        <td class="num">{{ "{:,.2f}".format(row.total) }}</td>
+        <td class="rg">
+          {% if row.production_groups %}
+          <strong>Production</strong><br>
+          {% for group in row.production_groups %}
+          {{ group.product }} (${{ "{:,.2f}".format(group.production) }})<br>
+          <ul style="margin:4px 0 8px 16px;padding:0">
+            {% for rg, cost in group.production_rgs %}
+            <li>{{ rg }} — ${{ "{:,.2f}".format(cost) }}</li>
+            {% endfor %}
+          </ul>
+          {% endfor %}
+          {% endif %}
+          {% if row.non_production_groups %}
+          <strong>Non-Production</strong><br>
+          {% for group in row.non_production_groups %}
+          {{ group.product }} (${{ "{:,.2f}".format(group.non_production) }})<br>
+          <ul style="margin:4px 0 8px 16px;padding:0">
+            {% for rg, cost in group.non_production_rgs %}
+            <li>{{ rg }} — ${{ "{:,.2f}".format(cost) }}</li>
+            {% endfor %}
+          </ul>
+          {% endfor %}
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+
+  {% if aws.services %}
+  <h2 class="break">AWS</h2>
+  <table>
+    <thead><tr><th>Service Name</th><th class="num">Amount (USD)</th></tr></thead>
+    <tbody>
+      {% for s in aws.services %}
+      <tr><td>{{ s.service }}</td><td class="num">{{ "{:,.2f}".format(s.cost) }}</td></tr>
+      {% endfor %}
+      <tr class="total"><td>Total Pre-Tax Charges</td><td class="num">{{ "{:,.2f}".format(aws.subtotal) }}</td></tr>
+      {% if aws.credits %}
+      <tr><td>Total Credits</td><td class="num down">-{{ "{:,.2f}".format(aws.credits) }}</td></tr>
+      {% endif %}
+      <tr><td>Total Tax</td><td class="num">{{ "{:,.2f}".format(aws.tax) }}</td></tr>
+      <tr class="total"><td>Grand Total</td><td class="num">{{ "{:,.2f}".format(aws.total) }}</td></tr>
+    </tbody>
+  </table>
+  {% endif %}
+
+  {% if gcp.services %}
+  <h2 class="break">GCP — By Service</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>Service Name</th>
+        <th class="num">Production (USD)</th>
+        <th class="num">Non-Production (USD)</th>
+        <th class="num">Shared (USD)</th>
+        <th class="num">Total (USD)</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for s in gcp.services %}
+      <tr>
+        <td>{{ s.service }}</td>
+        <td class="num">{{ "{:,.2f}".format(s.production) }}</td>
+        <td class="num">{{ "{:,.2f}".format(s.non_production) }}</td>
+        <td class="num">{{ "{:,.2f}".format(s.shared) }}</td>
+        <td class="num">{{ "{:,.2f}".format(s.total) }}</td>
+      </tr>
+      {% endfor %}
+      <tr class="total"><td colspan="4">Total Pre-Credit Charges</td><td class="num">{{ "{:,.2f}".format(gcp.subtotal) }}</td></tr>
+      {% if gcp.credits %}
+      <tr><td colspan="4">Total Credits</td><td class="num down">-{{ "{:,.2f}".format(gcp.credits) }}</td></tr>
+      {% endif %}
+      <tr class="total"><td colspan="4">Grand Total (GCP)</td><td class="num">{{ "{:,.2f}".format(gcp.total) }}</td></tr>
+    </tbody>
+  </table>
+
+  {% if gcp_project and gcp_project.project_names %}
+  <h2>GCP — By Project</h2>
+  <p class="muted">Net cost (after credits) per project, broken down by service.</p>
+  <table>
+    <thead>
+      <tr>
+        <th>Service Name</th>
+        {% for p in gcp_project.project_names %}<th class="num">{{ p }}</th>{% endfor %}
+        <th class="num">Total (USD)</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in gcp_project.rows %}
+      <tr>
+        <td>{{ row.service }}</td>
+        {% for p in gcp_project.project_names %}
+        <td class="num">{{ "{:,.2f}".format(row.by_project.get(p, 0)) }}</td>
+        {% endfor %}
+        <td class="num">{{ "{:,.2f}".format(row.total) }}</td>
+      </tr>
+      {% endfor %}
+      <tr class="total">
+        <td>Total Cost</td>
+        {% for p in gcp_project.project_names %}
+        <td class="num">{{ "{:,.2f}".format(gcp_project.totals.get(p, 0)) }}</td>
+        {% endfor %}
+        <td class="num">{{ "{:,.2f}".format(gcp_project.total) }}</td>
+      </tr>
+    </tbody>
+  </table>
+  {% endif %}
+  {% endif %}
+
+  {% if ai and ai.rows %}
+  <h2 class="break">AI / LLM Services</h2>
+  <p class="muted">Live LLM spend. Cursor and Claude come from each provider's usage API; Google (Gemini / Vertex AI) is sourced from GCP billing, so it is also counted in the GCP section.</p>
+
+  <h3>By Provider</h3>
+  <table>
+    <thead>
+      <tr>
+        <th>Provider</th>
+        <th class="num">Charges (USD)</th>
+        {% if ai.credits %}<th class="num">Credits (USD)</th>{% endif %}
+        <th class="num">Amount Due (USD)</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for p in ai.providers %}
+      <tr>
+        <td>{{ p.provider }}</td>
+        <td class="num">{{ "{:,.2f}".format(p.subtotal) }}</td>
+        {% if ai.credits %}<td class="num">{% if p.credits %}-{% endif %}{{ "{:,.2f}".format(p.credits) }}</td>{% endif %}
+        <td class="num">{{ "{:,.2f}".format(p.total) }}</td>
+      </tr>
+      {% endfor %}
+      <tr class="total">
+        <td>Total AI / LLM Spend</td>
+        <td class="num">{{ "{:,.2f}".format(ai.subtotal) }}</td>
+        {% if ai.credits %}<td class="num down">-{{ "{:,.2f}".format(ai.credits) }}</td>{% endif %}
+        <td class="num">{{ "{:,.2f}".format(ai.total) }}</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>By Project</h3>
+  <table>
+    <thead>
+      <tr>
+        <th>Project</th>
+        <th>Provider(s)</th>
+        {% if ai.has_tokens %}<th class="num">Usage</th>{% endif %}
+        <th class="num">Cost (USD)</th>
+        <th class="num">% of Charges</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in ai.projects %}
+      <tr>
+        <td>{{ r.project }}</td>
+        <td>{{ r.providers|join(", ") }}</td>
+        {% if ai.has_tokens %}<td class="num">{% if r.tokens %}{{ "{:,.0f}".format(r.tokens) }}{% if r.unit %} {{ r.unit }}{% endif %}{% else %}-{% endif %}</td>{% endif %}
+        <td class="num">{{ "{:,.2f}".format(r.total) }}</td>
+        <td class="num">{{ "{:.1f}".format(r.total / ai.subtotal * 100 if ai.subtotal else 0) }}%</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <h3>By Model</h3>
+  <table>
+    <thead>
+      <tr>
+        <th>Model</th>
+        <th>Provider</th>
+        {% if ai.has_projects %}<th>Project</th>{% endif %}
+        {% if ai.has_tokens %}<th class="num">Usage</th>{% endif %}
+        <th class="num">Cost (USD)</th>
+        <th class="num">% of Charges</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in ai.rows %}
+      <tr>
+        <td>{{ r.model or r.service }}</td>
+        <td>{{ r.provider }}</td>
+        {% if ai.has_projects %}<td>{{ r.project or '-' }}</td>{% endif %}
+        {% if ai.has_tokens %}<td class="num">{% if r.tokens %}{{ "{:,.0f}".format(r.tokens) }}{% if r.unit %} {{ r.unit }}{% endif %}{% else %}-{% endif %}</td>{% endif %}
+        <td class="num">{{ "{:,.2f}".format(r.total) }}</td>
+        <td class="num">{{ "{:.1f}".format(r.total / ai.subtotal * 100 if ai.subtotal else 0) }}%</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  {% if ai.top_users %}
+  {% for provider, tu in ai.top_users.items() %}
+  <h3>{{ provider }} — Top {{ tu.rows|length }} Users by {{ tu.by }}</h3>
+  <table>
+    <thead>
+      <tr>
+        <th>User / API Key</th>
+        <th class="num">Tokens</th>
+        <th class="num">Spend (USD)</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for u in tu.rows %}
+      <tr>
+        <td>{{ u.user }}</td>
+        <td class="num">{{ "{:,.0f}".format(u.tokens) if u.tokens else '-' }}</td>
+        <td class="num">{% if u.cost %}{{ "{:,.2f}".format(u.cost) }}{% else %}-{% endif %}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endfor %}
+  <p class="muted">Cursor ranks by spend; Claude by token volume (Anthropic has no per-key cost); Google (GCP billing) has no per-user attribution.</p>
+  {% endif %}
+  {% endif %}
+
+  <h2 class="break">Executive Summary</h2>
+
+  <h3>Azure Overall Spend</h3>
+  <table>
+    <thead><tr><th>Metric</th><th class="num">Amount (USD)</th></tr></thead>
+    <tbody>
+      {% if data.azure_prev_gross is not none %}
+      <tr><td>Previous month (Azure gross)</td><td class="num">{{ "{:,.2f}".format(data.azure_prev_gross) }}</td></tr>
+      {% endif %}
+      <tr><td>Current month (Azure gross)</td><td class="num">{{ "{:,.2f}".format(data.azure_curr_gross or 0) }}</td></tr>
+      {% if data.azure_prev_gross is not none %}
+      <tr class="total">
+        <td>Net change</td>
+        <td class="num {{ 'up' if (data.azure_curr_gross or 0) >= data.azure_prev_gross else 'down' }}">
+          {{ "{:,.2f}".format((data.azure_curr_gross or 0) - data.azure_prev_gross) }}
+        </td>
+      </tr>
+      {% endif %}
+    </tbody>
+  </table>
+
+  {% if data.key_increases %}
+  <h3>Key Increases (month over month)</h3>
+  <table>
+    <thead>
+      <tr>
+        <th>Cloud</th>
+        <th>Resource</th>
+        <th>Service</th>
+        <th class="num">Increase (USD)</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in data.key_increases %}
+      <tr>
+        <td>{{ row.cloud or '—' }}</td>
+        <td>{{ row.resource or '—' }}</td>
+        <td>{{ row.service or '—' }}</td>
+        <td class="num up">{{ "{:,.2f}".format(row.amount | default(0, true)) }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+
+  {% if data.savings %}
+  <h3>Key Decreases (month over month)</h3>
+  <table>
+    <thead>
+      <tr>
+        <th>Cloud</th>
+        <th>Resource</th>
+        <th>Service</th>
+        <th class="num">Decrease (USD)</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in data.savings %}
+      <tr>
+        <td>{{ row.cloud or '—' }}</td>
+        <td>{{ row.resource or '—' }}</td>
+        <td>{{ row.service or '—' }}</td>
+        <td class="num down">{{ "{:,.2f}".format(row.amount | default(0, true)) }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+
+  {% if data.period_summaries %}
+  <h2>Quick Summary — Multi-Period Comparison</h2>
+  <table>
+    <thead>
+      <tr><th>Period</th><th>Date Range</th><th class="num">Highest Spend (USD)</th><th class="num">Lowest Spend (USD)</th><th class="num">Savings (USD)</th><th class="num">Reduction (%)</th></tr>
+    </thead>
+    <tbody>
+      {% for p in data.period_summaries %}
+      <tr>
+        <td>{{ p.label }}</td>
+        <td class="muted">{{ p.from }} to {{ p.to }}</td>
+        <td class="num">{{ "{:,.0f}".format(p.highest) }}</td>
+        <td class="num">{{ "{:,.0f}".format(p.lowest) }}</td>
+        <td class="num down">{{ "{:,.0f}".format(p.savings) }}</td>
+        <td class="num down">{{ "{:.1f}".format(p.reduction_pct) }}%</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+
+  {% if data.credits_projection %}
+  {% set cp = data.credits_projection %}
+  <h2>Credits Usage &amp; Forecast</h2>
+  <p class="muted">Prepaid EA / agreement credit balance from config. Each month's applied credits (e.g. the Azure Credit on the invoice) draw down the balance.</p>
+  <table>
+    <tbody>
+      <tr><td>Credits used this month</td><td class="num">{{ "{:,.2f}".format(cp.this_month_usage) }}</td></tr>
+      <tr><td>Average monthly usage ({{ cp.window_months }} months)</td><td class="num">~{{ "{:,.2f}".format(cp.avg_monthly_burn) }}</td></tr>
+      <tr><td>Credits used (last {{ cp.window_months }} months)</td><td class="num">{{ "{:,.2f}".format(cp.credits_used_window) }}</td></tr>
+      {% if cp.original_amount %}
+      <tr><td>Original credit granted</td><td class="num">{{ "{:,.2f}".format(cp.original_amount) }}</td></tr>
+      <tr><td>Used to date ({{ cp.pct_used }}% of total)</td><td class="num">{{ "{:,.2f}".format(cp.credits_used_total) }}</td></tr>
+      {% endif %}
+      <tr><td>Balance remaining</td><td class="num">{{ "{:,.2f}".format(cp.current_balance) }}</td></tr>
+      {% if cp.months_remaining is not none %}
+      <tr><td>Runway at current usage</td><td class="num">{{ cp.months_remaining }} months</td></tr>
+      {% endif %}
+      {% if cp.expiry_date %}
+      <tr><td>Expiry date</td><td class="num">{{ cp.expiry_date }} ({{ cp.months_to_expiry }} months away)</td></tr>
+      <tr><td>Projected usage until expiry</td><td class="num">{{ "{:,.2f}".format(cp.projected_usage_to_expiry) }}</td></tr>
+      {% if cp.estimated_unused_at_expiry %}
+      <tr><td>Estimated unused at expiry</td><td class="num">{{ "{:,.2f}".format(cp.estimated_unused_at_expiry) }}</td></tr>
+      {% endif %}
+      {% if cp.estimated_overrun_at_expiry %}
+      <tr><td>Estimated overrun at expiry</td><td class="num">{{ "{:,.2f}".format(cp.estimated_overrun_at_expiry) }}</td></tr>
+      {% endif %}
+      {% endif %}
+    </tbody>
+  </table>
+  {% if cp.monthly_usage %}
+  <table style="margin-top:8px">
+    <thead><tr><th>Month</th><th class="num">Credits used (USD)</th></tr></thead>
+    <tbody>
+      {% for u in cp.monthly_usage %}
+      <tr><td>{{ u.month }}</td><td class="num">{{ "{:,.2f}".format(u.used) }}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+  {% endif %}
+
+  <p class="muted">Generated by FinOps.</p>
+</body>
+</html>

@@ -1,0 +1,40 @@
+# --- Secrets / local config (NEVER commit) ---
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+# GCP service-account key emitted by scripts/setup-gcp-access.sh
+gcp-cost-reporter-key.json
+*-key.json
+
+# --- Python virtual environments ---
+.venv/
+venv/
+env/
+ENV/
+
+# --- Python build / cache ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+build/
+dist/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# --- Generated artifacts ---
+*.pdf
+report*.pdf
+gcp-billing/*.csv
+
+# --- OS / editor ---
+.DS_Store
+*.swp
+.idea/
+.vscode/

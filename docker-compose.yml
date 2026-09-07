@@ -1,0 +1,62 @@
+# Local development stack: web app + Postgres.
+# Quick start:
+#   cp .env.example .env   # set BASIC_AUTH_PASSWORD + cloud creds
+#   docker compose up --build
+#   open http://localhost:8080   (login with BASIC_AUTH_USER / BASIC_AUTH_PASSWORD)
+#
+# Values like ${AWS_ACCESS_KEY_ID} are read from .env if present. Generating a
+# report requires real read-only cloud credentials. For the production stack
+# (secrets/config sourced from Azure Key Vault) see docker-compose.prod.yml.
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ccruser
+      POSTGRES_PASSWORD: ccrpass
+      POSTGRES_DB: costreporter
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ccruser -d costreporter"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  web:
+    build: .
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "8080:8080"
+    env_file:
+      - .env
+    environment:
+      # Local Postgres from the db service (overrides empty DATABASE_URL in .env).
+      DATABASE_URL: postgresql://ccruser:ccrpass@db:5432/costreporter
+      DB_AUTH: password
+      # GCP BigQuery path auth (harmless if only the CSV source is used).
+      GOOGLE_APPLICATION_CREDENTIALS: /app/gcp-cost-reporter-key.json
+    volumes:
+      # Live-reload config edits without rebuilding.
+      - ./config:/app/config:ro
+      # Live-reload web templates without rebuilding.
+      - ./src/web/templates:/app/src/web/templates:ro
+      # Live-reload Python during local dev (rebuild still required for prod image).
+      - ./src:/app/src:ro
+      - ./tests:/app/tests:ro
+      # AWS named profile (e.g. default) for local Cost Explorer testing
+      # (container runs as the non-root 'appuser', HOME=/home/appuser):
+      - ${HOME}/.aws:/home/appuser/.aws:ro
+      # Uncomment to test the Azure collector via your `az login` session:
+      # - ${HOME}/.azure:/home/appuser/.azure:ro
+      # GCP: historical Console cost-table CSVs (read by the gcp collector).
+      - ./gcp-billing:/app/gcp-billing:ro
+      # GCP: read-only service-account key for the forward-looking BigQuery path.
+      - ./gcp-cost-reporter-key.json:/app/gcp-cost-reporter-key.json:ro
+
+volumes:
+  pgdata:

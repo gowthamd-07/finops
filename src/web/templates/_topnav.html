@@ -1,0 +1,45 @@
+{# Shared top navigation bar. active_nav: "new", "admin", or a month key e.g. "2026-05" #}
+<header class="appbar">
+  <a href="/" class="brand">Fin<span>Ops</span></a>
+
+  <nav class="appbar-nav">
+    {% if role == 'admin' %}
+    <a href="/generate" class="appbar-link {{ 'active' if active_nav == 'new' else '' }}">+ New report</a>
+    {% endif %}
+    {% if months %}
+    <a href="/trends" class="appbar-link {{ 'active' if active_nav == 'trends' else '' }}">Trends</a>
+    {% endif %}
+    {% if months %}
+    <div class="appbar-month">
+      <label class="field" for="sidebarMonth">Month</label>
+      <select id="sidebarMonth" class="select"
+              onchange="if(this.value)window.location.href='/reports/'+this.value">
+        {% if active_nav in ['new', 'admin'] %}<option value="" selected>Select…</option>{% endif %}
+        {% for m in months %}
+        <option value="{{ m }}" {{ 'selected' if m == active_nav else '' }}>{{ m }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    {% endif %}
+  </nav>
+
+  <div class="appbar-actions">
+    <button type="button" class="theme-toggle" id="themeToggle" title="Toggle dark / light mode" aria-label="Toggle theme">
+      <span class="theme-icon theme-icon-dark">☀</span>
+      <span class="theme-icon theme-icon-light">☾</span>
+    </button>
+    {% if role == 'admin' %}
+    <a href="/admin" class="appbar-link {{ 'active' if active_nav == 'admin' else '' }}">Admin</a>
+    {% endif %}
+    {% if user %}
+    <div class="user-chip">
+      <div class="user-avatar">{{ user[0]|upper }}</div>
+      <div class="user-meta">
+        <span class="user-name" title="{{ user }}">{{ user }}</span>
+        {% if role %}<span class="user-role role-{{ role }}">{{ role }}</span>{% endif %}
+      </div>
+    </div>
+    {% endif %}
+    <a href="/logout" class="appbar-link appbar-logout">Log out</a>
+  </div>
+</header>

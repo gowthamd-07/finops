@@ -1,0 +1,388 @@
+{% extends "base.html" %}
+{% block title %}Historical Trends — FinOps{% endblock %}
+{% block head %}
+<style>
+  /* KPI cards (shared look with the report page, which defines these locally) */
+  .kpi-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:14px; margin-bottom:24px; }
+  .kpi {
+    position:relative; overflow:hidden;
+    background:var(--card); border:1px solid var(--line); border-radius:14px;
+    padding:18px 20px 18px 22px; display:flex; flex-direction:column; gap:8px;
+    box-shadow:0 1px 2px var(--shadow);
+    transition:transform .18s ease, box-shadow .18s ease, border-color .18s ease;
+  }
+  .kpi:hover { transform:translateY(-2px); box-shadow:0 10px 28px var(--shadow); border-color:var(--line-strong); }
+  .kpi::before { content:""; position:absolute; left:0; top:0; bottom:0; width:3px; background:var(--line-strong); }
+  .kpi.kpi-primary {
+    border-color:transparent;
+    background:linear-gradient(135deg, var(--accent-dim) 0%, transparent 65%), var(--card);
+  }
+  .kpi.kpi-primary::before { background:var(--grad-accent); }
+  .kpi .kpi-label { font-size:11px; text-transform:uppercase; letter-spacing:.05em; color:var(--muted); font-weight:600; }
+  .kpi .kpi-value { font-size:27px; font-weight:800; font-variant-numeric:tabular-nums; line-height:1.1; letter-spacing:-.01em; }
+  .kpi .kpi-value.up { color:var(--danger); }
+  .kpi .kpi-value.down { color:var(--success); }
+  .kpi .kpi-sub { font-size:12px; color:var(--muted); }
+
+  /* MoM delta chips */
+  .delta {
+    display:inline-flex; align-items:center; gap:4px;
+    font-size:12px; font-weight:700; font-variant-numeric:tabular-nums;
+    padding:2px 8px; border-radius:999px; white-space:nowrap; align-self:flex-start;
+  }
+  .delta small { font-weight:500; opacity:.8; }
+  .delta.up { color:var(--danger); background:var(--danger-dim); }
+  .delta.down { color:var(--success); background:var(--accent-dim); }
+  .delta.flat { color:var(--muted); background:var(--card-hover); }
+
+  .empty-note {
+    background:var(--card); border:1px dashed var(--line); border-radius:12px;
+    padding:28px; text-align:center; color:var(--muted); font-size:14px;
+  }
+  .table-scroll { overflow-x:auto; margin-bottom:8px; }
+
+  .trend-controls {
+    display:flex; flex-wrap:wrap; gap:16px; align-items:end;
+    background:var(--card); border:1px solid var(--line); border-radius:12px;
+    padding:16px 20px; margin-bottom:20px;
+  }
+  .trend-controls .filter-item { min-width:170px; }
+  .seg {
+    display:inline-flex; background:var(--input-bg); border:1px solid var(--line);
+    border-radius:8px; padding:3px; gap:2px;
+  }
+  .seg button {
+    appearance:none; border:none; background:transparent; color:var(--muted);
+    font:inherit; font-size:13px; font-weight:600; cursor:pointer;
+    padding:7px 14px; border-radius:6px; white-space:nowrap;
+    transition:background .15s, color .15s;
+  }
+  .seg button:hover { color:var(--text); }
+  .seg button.active { background:var(--accent); color:#fff; box-shadow:0 1px 4px var(--accent-glow); }
+  .trend-chart-card { position:relative; min-height:420px; padding:22px; }
+  .trend-chart-card canvas { width:100% !important; }
+  .chart-empty-lg {
+    display:flex; align-items:center; justify-content:center; min-height:360px;
+    color:var(--muted); font-size:14px; text-align:center;
+  }
+  .kpi .kpi-proj { font-size:11px; color:var(--muted); }
+  .legend-dot { display:inline-block; width:10px; height:10px; border-radius:50%; margin-right:6px; vertical-align:middle; }
+</style>
+{% endblock %}
+{% block body %}
+{%- macro compact(n) -%}
+{%- set a = n|abs -%}{%- set sign = '-' if n < 0 else '' -%}
+{%- if a >= 1000000 -%}{{ sign }}${{ "%.1f"|format(a/1000000) }}M
+{%- elif a >= 1000 -%}{{ sign }}${{ "%.1f"|format(a/1000) }}K
+{%- else -%}{{ sign }}${{ "{:,.2f}".format(a) }}{%- endif -%}
+{%- endmacro -%}
+{%- macro deltachip(d) -%}
+{%- if d and d.pct is not none -%}
+{%- set cls = 'up' if d.delta > 0 else ('down' if d.delta < 0 else 'flat') -%}
+{%- set arrow = '▲' if d.delta > 0 else ('▼' if d.delta < 0 else '▬') -%}
+<span class="delta {{ cls }}">{{ arrow }} {{ "{:+.1f}".format(d.pct) }}% <small>vs {{ d.prev_month }}</small></span>
+{%- endif -%}
+{%- endmacro -%}
+<div class="layout">
+  {% include "_topnav.html" %}
+
+  <div class="main">
+    <div class="topbar topbar-split">
+      <div class="topbar-title">
+        <h1>Historical Trends</h1>
+        <div class="sub">Cloud spend over time · {{ points|length }} month{{ '' if points|length == 1 else 's' }} of history</div>
+      </div>
+    </div>
+
+    <div class="content">
+      {% if points|length < 2 %}
+      <div class="empty-note">
+        Not enough history for a trend yet. Generate at least two monthly reports to see spend over time.
+      </div>
+      {% else %}
+
+      <div class="kpi-grid">
+        <div class="kpi kpi-primary">
+          <div class="kpi-label">Latest month ({{ points[-1].month }})</div>
+          <div class="kpi-value" title="${{ "{:,.2f}".format(points[-1].grand_total) }}">{{ compact(points[-1].grand_total) }}</div>
+          {% if mom %}{{ deltachip(mom) }}{% endif %}
+          <div class="kpi-sub">Net cost (after credits &amp; tax)</div>
+        </div>
+        <div class="kpi">
+          <div class="kpi-label">Average / month</div>
+          <div class="kpi-value" id="kpiAvg">—</div>
+          <div class="kpi-sub" id="kpiAvgSub">Across selected range</div>
+        </div>
+        <div class="kpi">
+          <div class="kpi-label">Total to date</div>
+          <div class="kpi-value" id="kpiTotal">—</div>
+          <div class="kpi-sub" id="kpiTotalSub">Sum across selected range</div>
+        </div>
+        {% if projection and projection.grand_total is not none %}
+        <div class="kpi" style="border-top:3px solid {{ 'var(--danger)' if projection.trend_direction == 'up' else 'var(--success)' }}">
+          <div class="kpi-label">Projected ({{ projection.month }})</div>
+          <div class="kpi-value {{ 'up' if projection.trend_direction == 'up' else 'down' }}" title="${{ "{:,.2f}".format(projection.grand_total) }}">{{ compact(projection.grand_total) }}</div>
+          <div class="kpi-proj">Linear forecast, next month</div>
+        </div>
+        {% endif %}
+      </div>
+
+      <div class="trend-controls">
+        <div class="filter-item">
+          <label class="field">View</label>
+          <div class="seg" id="segView">
+            <button type="button" data-view="cloud" class="active">By cloud</button>
+            <button type="button" data-view="total">Net cost</button>
+            <button type="button" data-view="gross">Gross charges</button>
+          </div>
+        </div>
+        <div class="filter-item">
+          <label class="field">Range</label>
+          <div class="seg" id="segRange">
+            <button type="button" data-range="3">3M</button>
+            <button type="button" data-range="6">6M</button>
+            <button type="button" data-range="12">12M</button>
+            <button type="button" data-range="all" class="active">All</button>
+          </div>
+        </div>
+        {% if projection and projection.grand_total is not none %}
+        <div class="filter-item">
+          <label class="field">Forecast</label>
+          <label class="checks" style="margin:0"><input type="checkbox" id="showProj" /> Show next-month projection</label>
+        </div>
+        {% endif %}
+      </div>
+
+      <div class="card trend-chart-card" id="trendCard">
+        <canvas id="trendChart" height="380"></canvas>
+      </div>
+
+      <h2 class="section">Monthly detail</h2>
+      <div class="table-scroll">
+      <table class="data">
+        <thead><tr>
+          <th>Month</th>
+          {% for c in clouds %}<th class="num">{{ c }} (USD)</th>{% endfor %}
+          <th class="num">Gross charges (USD)</th>
+          {% if show_credits %}<th class="num">Credits (USD)</th>{% endif %}
+          <th class="num">Net cost (USD)</th>
+          <th class="num">Change</th>
+        </tr></thead>
+        <tbody>
+          {% for p in points|reverse %}
+          {% set prev = points[loop.length - loop.index - 1] if loop.index < loop.length else none %}
+          {% set chg = (p.grand_total - prev.grand_total) if prev else none %}
+          <tr>
+            <td><a href="/reports/{{ p.month }}">{{ p.month }}</a></td>
+            {% for c in clouds %}<td class="num">${{ "{:,.2f}".format(p.clouds.get(c, 0)) }}</td>{% endfor %}
+            <td class="num">${{ "{:,.2f}".format(p.subtotal) }}</td>
+            {% if show_credits %}<td class="num">{% if p.credits %}−{% endif %}${{ "{:,.2f}".format(p.credits) }}</td>{% endif %}
+            <td class="num"><strong>${{ "{:,.2f}".format(p.grand_total) }}</strong></td>
+            <td class="num {{ 'up' if chg and chg > 0 else ('down' if chg and chg < 0 else 'muted') }}">
+              {%- if chg is none %}—{% else %}{{ '+' if chg >= 0 else '−' }}${{ "{:,.0f}".format(chg|abs) }}{% endif -%}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      </div>
+
+      {% if period_summaries %}
+      <h2 class="section">Period Comparison</h2>
+      <p class="filter-hint" style="margin-bottom:10px">Based on amount due each month (after credits and tax).</p>
+      <table class="data">
+        <thead><tr><th>Period</th><th>Date Range</th><th class="num">Highest Spend (USD)</th><th class="num">Lowest Spend (USD)</th><th class="num">Average (USD)</th><th class="num">Savings (USD)</th><th class="num">Reduction (%)</th></tr></thead>
+        <tbody>{% for p in period_summaries %}
+          <tr><td>{{ p.label }}</td><td class="muted">{{ p.from }} to {{ p.to }}</td>
+            <td class="num">${{ "{:,.0f}".format(p.highest) }}</td><td class="num">${{ "{:,.0f}".format(p.lowest) }}</td>
+            <td class="num">${{ "{:,.0f}".format(p.average) }}</td>
+            <td class="num down">${{ "{:,.0f}".format(p.savings) }}</td><td class="num">{{ "{:.1f}".format(p.reduction_pct) }}%</td></tr>
+        {% endfor %}</tbody>
+      </table>
+      {% endif %}
+
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+<script>
+const TREND = {{ points | tojson }};
+const CLOUDS = {{ clouds | tojson }};
+const PROJECTION = {{ projection | tojson }};
+
+let state = { view: 'cloud', range: 'all', proj: false };
+let chart;
+
+function fmtMoney(n) {
+  return '$' + Number(n || 0).toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2});
+}
+function fmtCompact(n) {
+  n = Number(n || 0);
+  const a = Math.abs(n), sign = n < 0 ? '-' : '';
+  if (a >= 1e6) return sign + '$' + (a / 1e6).toFixed(1) + 'M';
+  if (a >= 1e3) return sign + '$' + (a / 1e3).toFixed(1) + 'K';
+  return sign + '$' + a.toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2});
+}
+
+function chartTheme() {
+  const s = getComputedStyle(document.documentElement);
+  const v = (name, fb) => s.getPropertyValue(name).trim() || fb;
+  return {
+    accent: v('--accent', '#1db954'),
+    muted: v('--chart-text', '#9ba1ac'),
+    grid: v('--chart-grid', 'rgba(255,255,255,.06)'),
+  };
+}
+function cloudColor(name) {
+  const s = getComputedStyle(document.documentElement);
+  const accent = s.getPropertyValue('--accent').trim() || '#1db954';
+  return {
+    AWS: '#f59b23', Azure: accent, GCP: '#4285f4',
+    Cursor: '#94a3b8', Claude: '#d97757', Google: '#8a5cf6',
+  }[name] || accent;
+}
+function vGradient(ctx, area, hex) {
+  if (!area) return hex;
+  const g = ctx.createLinearGradient(0, area.top, 0, area.bottom);
+  g.addColorStop(0, hex + 'cc');
+  g.addColorStop(1, hex + '10');
+  return g;
+}
+
+function visiblePoints() {
+  if (state.range === 'all') return TREND;
+  const n = parseInt(state.range, 10);
+  return TREND.slice(Math.max(0, TREND.length - n));
+}
+
+function updateKpis(pts) {
+  const totals = pts.map(p => p.grand_total || 0);
+  const sum = totals.reduce((a, b) => a + b, 0);
+  const avg = totals.length ? sum / totals.length : 0;
+  document.getElementById('kpiAvg').textContent = fmtCompact(avg);
+  document.getElementById('kpiTotal').textContent = fmtCompact(sum);
+  const label = pts.length ? `${pts[0].month} → ${pts[pts.length - 1].month}` : '—';
+  document.getElementById('kpiAvgSub').textContent = `${pts.length} months · ${label}`;
+  document.getElementById('kpiTotalSub').textContent = label;
+}
+
+function buildConfig() {
+  const theme = chartTheme();
+  const pts = visiblePoints();
+  const moneyTip = { callbacks: { label: (c) => ' ' + (c.dataset.label ? c.dataset.label + ': ' : '') + fmtMoney(c.parsed.y) } };
+  const baseScales = {
+    x: { stacked: state.view === 'cloud', ticks: { color: theme.muted }, grid: { color: theme.grid, drawBorder: false } },
+    y: { stacked: state.view === 'cloud', ticks: { color: theme.muted, callback: (v) => '$' + Number(v).toLocaleString() }, grid: { color: theme.grid, drawBorder: false } },
+  };
+
+  if (state.view === 'cloud') {
+    return {
+      type: 'bar',
+      data: {
+        labels: pts.map(p => p.month),
+        datasets: CLOUDS.map(c => ({
+          label: c,
+          data: pts.map(p => (p.clouds && p.clouds[c]) || 0),
+          backgroundColor: cloudColor(c),
+          borderRadius: 3,
+          borderSkipped: false,
+          maxBarThickness: 46,
+          stack: 'spend',
+        })),
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        interaction: { mode: 'index', intersect: false },
+        plugins: {
+          legend: { display: true, position: 'bottom', labels: { color: theme.muted, usePointStyle: true, pointStyle: 'rectRounded', padding: 16 } },
+          tooltip: { ...moneyTip, mode: 'index', intersect: false },
+          title: { display: true, text: 'Net cost by cloud', color: theme.muted, font: { size: 14, weight: '600' } },
+        },
+        scales: baseScales,
+      },
+    };
+  }
+
+  const key = state.view === 'gross' ? 'subtotal' : 'grand_total';
+  const title = state.view === 'gross' ? 'Gross charges over time' : 'Net cost over time';
+  const labels = pts.map(p => p.month);
+  const actual = pts.map(p => p[key]);
+  const datasets = [{
+    label: state.view === 'gross' ? 'Gross charges' : 'Net cost',
+    data: actual.slice(),
+    borderColor: theme.accent, borderWidth: 2.5,
+    backgroundColor: (c) => vGradient(c.chart.ctx, c.chart.chartArea, theme.accent),
+    fill: true, tension: .35,
+    pointRadius: 3, pointHoverRadius: 5,
+    pointBackgroundColor: theme.accent, pointBorderColor: theme.accent,
+  }];
+
+  if (state.proj && PROJECTION && pts.length >= 2) {
+    const projVal = state.view === 'gross' ? PROJECTION.subtotal : PROJECTION.grand_total;
+    if (projVal !== null && projVal !== undefined) {
+      const lastIdx = labels.length - 1;
+      labels.push(PROJECTION.month);
+      datasets[0].data.push(null);
+      const proj = new Array(labels.length).fill(null);
+      proj[lastIdx] = actual[actual.length - 1];
+      proj[lastIdx + 1] = projVal;
+      datasets.push({
+        label: 'Projected',
+        data: proj,
+        borderColor: theme.accent, borderWidth: 2, borderDash: [6, 5],
+        fill: false, tension: 0,
+        pointRadius: 4, pointHoverRadius: 6, pointStyle: 'rectRot',
+        pointBackgroundColor: 'transparent', pointBorderColor: theme.accent,
+      });
+    }
+  }
+
+  return {
+    type: 'line',
+    data: { labels, datasets },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { display: state.proj && datasets.length > 1, position: 'bottom', labels: { color: theme.muted, usePointStyle: true, padding: 16 } },
+        tooltip: moneyTip,
+        title: { display: true, text: title, color: theme.muted, font: { size: 14, weight: '600' } },
+      },
+      scales: baseScales,
+    },
+  };
+}
+
+function render() {
+  updateKpis(visiblePoints());
+  if (chart) chart.destroy();
+  const el = document.getElementById('trendChart');
+  if (!el || !window.Chart) return;
+  chart = new Chart(el, buildConfig());
+}
+
+if (window.Chart) {
+  Chart.defaults.font.family = getComputedStyle(document.body).fontFamily;
+  Chart.defaults.animation.duration = 600;
+  Chart.defaults.animation.easing = 'easeOutQuart';
+}
+
+document.querySelectorAll('#segView button').forEach(b => b.addEventListener('click', () => {
+  state.view = b.dataset.view;
+  document.querySelectorAll('#segView button').forEach(x => x.classList.toggle('active', x === b));
+  render();
+}));
+document.querySelectorAll('#segRange button').forEach(b => b.addEventListener('click', () => {
+  state.range = b.dataset.range;
+  document.querySelectorAll('#segRange button').forEach(x => x.classList.toggle('active', x === b));
+  render();
+}));
+const projToggle = document.getElementById('showProj');
+if (projToggle) projToggle.addEventListener('change', () => { state.proj = projToggle.checked; render(); });
+
+document.addEventListener('ccr-theme-change', render);
+
+if (TREND.length >= 2) render();
+</script>
+{% endblock %}

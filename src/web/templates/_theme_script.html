@@ -1,0 +1,71 @@
+<script>
+function toggleTheme() {
+  const root = document.documentElement;
+  const next = root.getAttribute('data-theme') === 'light' ? 'dark' : 'light';
+  const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  if (!reduce) {
+    root.classList.add('theme-transition');
+    window.clearTimeout(toggleTheme._t);
+    toggleTheme._t = window.setTimeout(() => root.classList.remove('theme-transition'), 320);
+  }
+  root.setAttribute('data-theme', next);
+  localStorage.setItem('ccr-theme', next);
+  const btn = document.getElementById('themeToggle');
+  if (btn) btn.setAttribute('aria-pressed', String(next === 'light'));
+  document.dispatchEvent(new CustomEvent('ccr-theme-change', { detail: next }));
+}
+
+function initMonthPicker(defaultYm, maxYm) {
+  const hidden = document.getElementById('monthValue');
+  const selMonth = document.getElementById('pickMonth');
+  const selYear = document.getElementById('pickYear');
+  const wrap = document.querySelector('.month-picker');
+  if (!hidden || !selMonth || !selYear) return;
+
+  const maxKey = maxYm || wrap?.dataset.maxMonth || defaultYm || hidden.value;
+  const [maxY, maxM] = maxKey.split('-').map(Number);
+
+  const [y, m] = (defaultYm || hidden.value || maxKey).split('-').map(Number);
+  if (y) selYear.value = String(y);
+  if (m) selMonth.value = String(m).padStart(2, '0');
+
+  function refreshMonthOptions() {
+    const year = Number(selYear.value);
+    Array.from(selMonth.options).forEach((opt) => {
+      const month = Number(opt.value);
+      const disabled = year > maxY || (year === maxY && month > maxM);
+      opt.disabled = disabled;
+      opt.hidden = disabled;
+    });
+    if (Number(selYear.value) > maxY) selYear.value = String(maxY);
+    if (Number(selYear.value) === maxY && Number(selMonth.value) > maxM) {
+      selMonth.value = String(maxM).padStart(2, '0');
+    }
+  }
+
+  function sync() {
+    refreshMonthOptions();
+    const year = Number(selYear.value);
+    const month = Number(selMonth.value);
+    if (year > maxY || (year === maxY && month > maxM)) {
+      selYear.value = String(maxY);
+      selMonth.value = String(maxM).padStart(2, '0');
+    }
+    hidden.value = `${selYear.value}-${selMonth.value}`;
+  }
+
+  selMonth.addEventListener('change', sync);
+  selYear.addEventListener('change', sync);
+  sync();
+}
+
+function bootUi() {
+  document.getElementById('themeToggle')?.addEventListener('click', toggleTheme);
+}
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', bootUi);
+} else {
+  bootUi();
+}
+</script>
