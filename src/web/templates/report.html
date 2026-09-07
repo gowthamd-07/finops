@@ -713,7 +713,7 @@
         </div>
 
         <h2 class="section">Cost Breakdown</h2>
-        <p class="breakdown-legend">Resource groups grouped by workload (Ecommerce, Shared, VRE, AI, Bioinfo, Others). Production uses <strong>pd</strong> tiers; non-production uses <strong>st</strong> and <strong>dv</strong> tiers.</p>
+        <p class="breakdown-legend">Resource groups grouped by workload (Ecommerce, Shared, Lab, AI, Data, Others). Production uses <strong>pd</strong> tiers; non-production uses <strong>st</strong> and <strong>dv</strong> tiers.</p>
         <div class="azure-breakdown">
           {% for row in azure_breakdown %}
           <details class="breakdown-card" {% if loop.index <= 3 %}open{% endif %}>
@@ -1251,7 +1251,7 @@ async function refreshCharts() {
 
     document.getElementById('filterTotal').textContent = '$' + chart.total.toLocaleString(undefined, {minimumFractionDigits:2});
     const parts = Object.entries(chart.filters || {}).map(([k,v]) => k + '=' + v);
-    const base = 'Environment: pd · dv · st · ut. Workloads: Ecommerce, Shared, VRE, AI, Bioinfo, Others.';
+    const base = 'Environment: pd · dv · st · ut. Workloads: Ecommerce, Shared, Lab, AI, Data, Others.';
     document.getElementById('filterHint').textContent = parts.length ? base + ' Active: ' + parts.join(' · ') : base;
 
     renderSummary(chart.summary, parts.length > 0);

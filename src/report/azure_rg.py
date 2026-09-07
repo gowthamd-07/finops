@@ -21,9 +21,9 @@ _BIZ_ENV_RE = re.compile(
 WORKLOAD_CATEGORIES = (
     "Ecommerce",
     "Shared",
-    "VRE",
+    "Lab",
     "AI",
-    "Bioinfo",
+    "Data",
     "Others",
 )
 
@@ -108,23 +108,23 @@ def workload_category(resource_group: str) -> str:
         return "Shared"
 
     if (
-        lower.startswith("rg-vre")
-        or "rg-vre" in lower
-        or "cae-vre" in lower
-        or re.search(r"(?:^|[-_/])vre(?:[-_]|$)", lower)
+        lower.startswith("rg-lab")
+        or "rg-lab" in lower
+        or "cae-lab" in lower
+        or re.search(r"(?:^|[-_/])lab(?:[-_]|$)", lower)
     ):
-        return "VRE"
+        return "Lab"
 
-    if "bioinfo" in lower:
-        return "Bioinfo"
+    if lower.startswith("rg-data") or "rg-data" in lower:
+        return "Data"
 
-    # AI workloads incl. rg-ai, AKS (MC_rg-ai), and Managed Prometheus (MA_mw-vse).
+    # AI workloads incl. rg-ai, AKS (MC_rg-ai), and Managed Prometheus (MA_mw-ai).
     if (
         lower.startswith("rg-ai")
         or "rg-ai" in lower
         or lower.startswith("mc_rg-ai")
-        or "mw-vse" in lower
-        or "aks-vse" in lower
+        or "mw-ai" in lower
+        or "aks-ai" in lower
     ):
         return "AI"
 

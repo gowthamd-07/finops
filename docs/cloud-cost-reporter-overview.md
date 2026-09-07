@@ -66,7 +66,7 @@ A small service that does the whole job end-to-end:
 - **Aggregates** everything into one report: per-cloud totals (charges, credits,
   tax), a **breakdown by service**, and a split across
   **Production / Non-Production / Shared** environments and workloads
-  (Ecommerce, Shared, VRE, AI, Bioinfo, Others).
+  (Ecommerce, Shared, Lab, AI, Data, Others).
 - **Compares to last month** automatically — top increases and savings as an
   **executive summary**.
 - **Two ways to run, same engine:**
@@ -137,7 +137,7 @@ monthly job ────────────────────► ▼
   to config.
 - **Read-only access required:** needs `Cost Management Reader` + `Billing
   account reader` on Azure and Cost Explorer read perms on AWS.
-- **Workload mapping** (RG → Ecommerce/VRE/AI/etc.) is derived from
+- **Workload mapping** (RG → Ecommerce/Lab/AI/etc.) is derived from
   resource-group naming conventions; misnamed groups can land in "Others".
 - **Not yet on GitHub** — code still local; needs to be pushed before others
   can review/contribute.

@@ -27,7 +27,7 @@ BQ_LOCATION="${BQ_LOCATION:-US}"
 
 # Billing accounts to grant read access on (ID from `gcloud billing accounts list`).
 BILLING_ACCOUNTS=(
-  "013ECD-E3C23D-C2DE08"   # Example Billing Account
+  "000000-000000-000000"   # Example Billing Account
   "01AFAE-DF8A68-940788"   # Example-Photon Billing
 )
 ROLE="roles/billing.viewer"

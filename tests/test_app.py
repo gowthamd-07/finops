@@ -78,22 +78,22 @@ class AzureRgTests(unittest.TestCase):
             "rg-shared-st-cu-01": "Shared",
             "rg-shared-pd-eu-01-managed": "Shared",
             "rg-shared-ut-sc-01": "Shared",
-            # VRE
-            "rg-vre-dv-eu-01": "VRE",
-            "rg-vre-st-eu-01": "VRE",
-            "rg-vre-pd-eu-01": "VRE",
-            "rg-vre-sb-eu-01": "VRE",
-            "ME_cae-vre-dv-eu-01_rg-vre-dv-eu-01_eastus": "VRE",
-            # AI (incl. MA_mw-vse and MC_rg-ai AKS node pools)
-            "MA_mw-vse-st-eu-01_eastus_managed": "AI",
-            "MA_mw-vse-pd-eu-01_eastus_managed": "AI",
-            "MC_rg-ai-st-eu-01_aks-vse-st-eu-01_eastus": "AI",
-            "MC_rg-ai-pd-eu-01_aks-vse-pd-eu-01_eastus": "AI",
+            # Lab
+            "rg-lab-dv-eu-01": "Lab",
+            "rg-lab-st-eu-01": "Lab",
+            "rg-lab-pd-eu-01": "Lab",
+            "rg-lab-sb-eu-01": "Lab",
+            "ME_cae-lab-dv-eu-01_rg-lab-dv-eu-01_eastus": "Lab",
+            # AI (incl. MA_mw-ai and MC_rg-ai AKS node pools)
+            "MA_mw-ai-st-eu-01_eastus_managed": "AI",
+            "MA_mw-ai-pd-eu-01_eastus_managed": "AI",
+            "MC_rg-ai-st-eu-01_aks-ai-st-eu-01_eastus": "AI",
+            "MC_rg-ai-pd-eu-01_aks-ai-pd-eu-01_eastus": "AI",
             "rg-ai-st-eu-01": "AI",
             "rg-ai-pd-eu-01": "AI",
-            # Bioinfo
-            "rg-bioinfo-dv-eu-01": "Bioinfo",
-            "rg-bioinfo-pd-eu-01": "Bioinfo",
+            # Data
+            "rg-data-dv-eu-01": "Data",
+            "rg-data-pd-eu-01": "Data",
             # Others
             "dashboards": "Others",
             "rg-dns-np-eu-01": "Others",
@@ -108,8 +108,8 @@ class AzureRgTests(unittest.TestCase):
 
         self.assertTrue(rg_matches_product("rg-app-pd-eu-01", "Ecommerce"))
         self.assertFalse(rg_matches_product("rg-app-pd-eu-01", "AI"))
-        self.assertTrue(rg_matches_product("MC_rg-ai-st-eu-01_aks-vse-st-eu-01_eastus", "AI"))
-        self.assertTrue(rg_matches_product("MA_mw-vse-pd-eu-01_eastus_managed", "AI"))
+        self.assertTrue(rg_matches_product("MC_rg-ai-st-eu-01_aks-ai-st-eu-01_eastus", "AI"))
+        self.assertTrue(rg_matches_product("MA_mw-ai-pd-eu-01_eastus_managed", "AI"))
 
     def test_rg_matches_env_tier(self):
         from src.report.azure_rg import rg_matches_env_tier
@@ -382,7 +382,7 @@ class BillingTotalsTests(unittest.TestCase):
 class GcpCollectorTests(unittest.TestCase):
     _CSV = (
         "Invoice number,123,\n"
-        "Billing account ID,013ECD-E3C23D-C2DE08,\n"
+        "Billing account ID,000000-000000-000000,\n"
         "Currency,USD,\n"
         "Total amount due,$95.00,\n"
         "Billing account name,Billing account ID,Project name,Project ID,Project hierarchy,"
@@ -390,14 +390,14 @@ class GcpCollectorTests(unittest.TestCase):
         "Credit type,Cost type,Usage start date,Usage end date,Usage amount,Usage unit,"
         "Unrounded Cost ($),Cost ($)\n"
         # prod project charges
-        "Example Billing Account,013ECD-E3C23D-C2DE08,Example - PROD,billing-prod,example.com,"
+        "Example Billing Account,000000-000000-000000,Example - PROD,billing-prod,example.com,"
         "BigQuery,S1,Analysis,K1,Default,,Usage,2026-01-01,2026-01-31,\"1,000\",count,60.00,60.00\n"
-        "Example Billing Account,013ECD-E3C23D-C2DE08,Example - PROD,billing-prod,example.com,"
+        "Example Billing Account,000000-000000-000000,Example - PROD,billing-prod,example.com,"
         "Cloud Storage,S2,Standard,K2,Default,,Usage,2026-01-01,2026-01-31,10,gibibyte,40.00,40.00\n"
         # dev project charge + a spending-based discount (credit)
-        "Example Billing Account,013ECD-E3C23D-C2DE08,ml-dev,ml-dev,example.com,"
+        "Example Billing Account,000000-000000-000000,ml-dev,ml-dev,example.com,"
         "Cloud Run,S3,CPU,K3,Default,,Usage,2026-01-01,2026-01-31,5,hour,10.00,10.00\n"
-        "Example Billing Account,013ECD-E3C23D-C2DE08,ml-dev,ml-dev,example.com,"
+        "Example Billing Account,000000-000000-000000,ml-dev,ml-dev,example.com,"
         "Cloud Run,S3,CPU,K3,,SPENDING_BASED_DISCOUNT,Usage,2026-01-01,2026-01-31,,,-15.00,-15.00\n"
         # footer rows (must be ignored)
         ",,,,,,,,,,,Rounding error,,,,,-0.00,-0.00\n"

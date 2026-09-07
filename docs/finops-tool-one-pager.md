@@ -33,7 +33,7 @@ to assemble and was hard to audit.
 |---|---|
 | Overall + per-cloud tabs | *What did we pay in total, and to whom?* |
 | Environment split (prod / non-prod / shared) | *How much is production vs. everything else?* |
-| Workload attribution (Ecommerce, VRE, AI, Bioinfo, Shared) | *Which product line drives Azure spend?* |
+| Workload attribution (Ecommerce, Lab, AI, Data, Shared) | *Which product line drives Azure spend?* |
 | AI / LLM tab | *What are we spending on AI, by model and by person?* |
 | Filters + drill-down charts | *Slice spend by cloud, subscription, resource group, service.* |
 | Historical trends + forecast | *Are we trending up or down? What's next month?* |
